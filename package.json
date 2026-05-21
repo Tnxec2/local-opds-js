@@ -8,9 +8,17 @@
     "dev": "ts-node src/index.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "",
+  "author": "Nikolas Maletschkin",
   "license": "ISC",
-  "description": "",
+  "description": "A simple OPDS server that exposes a local directory structure as an OPDS (Atom) feed.",
+  "keywords": [
+    "opds",
+    "ebook"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Tnxec2/local-opds-js"
+  },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/jszip": "^3.4.1",
