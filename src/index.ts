@@ -194,7 +194,7 @@ app.get('/rescan', async (_req, res) => {
   }
 });
 
-app.get('/status', async (_req, res) => {
+app.get('/status', async (req, res) => {
   try {
     const index = await indexer.getIndex(BASE_DIR);
     res.json({
@@ -202,6 +202,8 @@ app.get('/status', async (_req, res) => {
       fileCount: index.fileCount,
       lastScanned: index.lastScanned,
       cacheAge: `${Date.now() - index.lastScanned.getTime()}ms`,
+      rescanEndpoint: `${req.protocol}://${req.get('host')}/rescan`,
+      opdsEndpoint: `${req.protocol}://${req.get('host')}/opds`,
     });
   } catch (err: any) {
     res.status(500).json({ error: String(err) });
