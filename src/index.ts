@@ -18,14 +18,6 @@ function feedIdForPath(relPath: string) {
   return `urn:local-opds:${relPath || '/'}`;
 }
 
-
-//
-// TODO: add pagination support for directories with many entries (e.g. >100) 
-// using query parameters like ?page=2&per_page=50 and include <link rel="next"> 
-// in the feed if there are more pages.
-// add also previous page support with ?page=1&per_page=50 and <link rel="previous"> in the feed.
-// 
-
 async function buildFeed(
     relPath: string, 
     baseUrl: string, 
