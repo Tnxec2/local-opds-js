@@ -1,0 +1,26 @@
+{
+  "name": "local-opds",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/jszip": "^3.4.1",
+    "@types/node": "^25.9.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.9.10",
+    "express": "^5.2.1",
+    "jszip": "^3.10.1",
+    "xmlbuilder2": "^4.0.3"
+  }
+}
