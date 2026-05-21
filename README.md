@@ -1,21 +1,33 @@
 # Local OPDS Server (TypeScript)
 
-Ein einfacher OPDS-Server, der eine lokale Verzeichnisstruktur als OPDS (Atom) Feed bereitstellt und Dateien unter `/files/` serviert.
+A simple OPDS server that exposes a local directory structure as an OPDS (Atom) feed and serves files under `/files/`.
 
-Schnellstart:
+Quick Start:
 
-1. Ebooks in `./ebooks/` legen (oder `EBOOK_DIR` setzen).
-2. Abhängigkeiten installieren:
+1. Place ebooks in `./ebooks/` (or set `EBOOK_DIR`).
+2. Install dependencies:
 
 ```bash
 npm install
 ```
 
-3. Projekt bauen und starten:
+3. Build and Start Project:
 
 ```bash
 npm run build
 npm start
+
+or
+
+PORT=3000 EBOOK_DIR=/home/path/zu/Library/ npm start
 ```
 
-Der OPDS-Feed ist verfügbar unter `http://localhost:3000/opds`.
+The OPDS feed is available at `http://localhost:3000/opds`.
+
+The number of items per page can be set using the `per_page` URL parameter. For example:
+
+`http://localhost:3000/opds?per_page=12`
+
+The page can be specified as follows:
+
+`http://localhost:3000/opds?page=10&per_page=10`
