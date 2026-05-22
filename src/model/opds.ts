@@ -1,7 +1,7 @@
 import { create } from 'xmlbuilder2';
 import path from 'path';
+import fs from 'fs/promises';
 
-import { IndexedDirectory, IndexedFile } from '../indexer/indexer';
 import { XMLBuilder } from 'xmlbuilder2/lib/interfaces';
 
 
@@ -12,7 +12,7 @@ type SubsectionLink = {
 }
 
 
-const getSubseciton = (href: string) : SubsectionLink => {
+function getSubseciton(href: string) : SubsectionLink {
     return { type: "application/atom+xml;profile=opds-catalog", rel: 'subsection', href: href }
 }
 
@@ -20,40 +20,48 @@ function feedIdForPath(relPath: string) {
   return `urn:local-opds:${relPath || '/'}`;
 }
 
-const addPageElement = (feed: XMLBuilder, title: string, href: string) => {
+function addPageElement(feed: XMLBuilder, title: string, href: string) {
     const p = feed.ele('entry');
     p.ele('title').txt(title);
     p.ele('link', getSubseciton(href)).up();
     return p;
 }
 
+function getMimeType(filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  const mimeTypes: Record<string, string> = {
+    '.epub': 'application/epub+zip',
+    '.txt': 'text/plain',
+    '.md': 'text/markdown',
+    '.html': 'text/html',
+    '.htm': 'text/html',
+  };
+  return mimeTypes[ext] || 'application/octet-stream';
+}
+
 async function buildFeed(
-    relPath: string, 
+    baseDir: string,
     baseUrl: string, 
-    index: IndexedDirectory,
+    relPath: string, 
     page: number = 1,
     perPage: number = 10,
 ): Promise<string> {
-  // Navigate the index tree to find the requested directory
+  
   const pathSegments = relPath ? relPath.split(path.sep).filter(s => s) : [];
-  let currentNode: IndexedDirectory | IndexedFile = index;
+  const pathToList = path.join(baseDir, ...pathSegments);
 
-  for (const segment of pathSegments) {
-    if (!('children' in currentNode)) {
-      throw new Error(`Not a directory: ${relPath}`);
-    }
-    const found = currentNode.children.find(c => c.name === segment) as (IndexedDirectory | IndexedFile) | undefined;
-    if (!found) {
-      throw new Error(`Path not found: ${relPath}`);
-    }
-    currentNode = found;
-  }
+  // console.log(`Building feed for path: ${pathToList}, page: ${page}, perPage: ${perPage}`);
 
-  if (!('children' in currentNode)) {
-    throw new Error(`Not a directory: ${relPath}`);
-  }
+  // list filesystem for relPath
+  const filelist = await fs.readdir(pathToList, { withFileTypes: true });
 
-  const entries = currentNode.children.slice((page - 1) * perPage, page * perPage);
+  const sortedFilelist = filelist.sort((a, b) => {
+    if (a.isDirectory() && !b.isDirectory()) return -1;
+    if (!a.isDirectory() && b.isDirectory()) return 1;
+    return a.name.localeCompare(b.name);
+  });
+ 
+  const entries = sortedFilelist.slice((page - 1) * perPage, page * perPage);
 
   // Create the feed
 
@@ -66,8 +74,6 @@ async function buildFeed(
   // self link
   const selfHref = `${baseUrl.replace(/\/$/, '')}/opds${relPath ? '/' + relPath.split(path.sep).map(encodeURIComponent).join('/') : ''}`;
   feed.ele('link', { rel: 'self', href: selfHref }).up();
-
-  // console.log(`Building feed for /opds/${relPath} (page ${page}, ${entries.length} entries, total ${currentNode.children.length})`);
 
   const upHref = path.dirname(relPath);
   if (relPath) {
@@ -86,41 +92,32 @@ async function buildFeed(
     addPageElement(feed, `Previous Page`, prevHref);
   }
 
-  if (currentNode.children.length > page * perPage) {
+  if (sortedFilelist.length > page * perPage) {
     const nextHref = `${p}?page=${page + 1}&per_page=${perPage}`;
     addPageElement(feed, `Next Page`, nextHref);
   }
 
   for (const e of entries) {
+    const fileStats = await fs.stat(path.join(baseDir, relPath, e.name));
+    
     const entry = feed.ele('entry');
     
-    entry.ele('id').txt(`${feedIdForPath(relPath)}:${e.relPath}`);
+    entry.ele('id').txt(`${feedIdForPath(relPath)}:${e.name}`);
     entry.ele('updated').txt(now);
 
-    if ('children' in e) {
-        const href = `${baseUrl.replace(/\/$/, '')}/opds/${e.relPath.split(path.sep).map(encodeURIComponent).join('/')}`;
+    if (e.isDirectory()){
+        const href = `${baseUrl.replace(/\/$/, '')}/opds/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}${encodeURIComponent(e.name)}`;
         entry.ele('title').txt(e.name || 'unknown');
         entry.ele('link', getSubseciton(href)).up();
-        entry.ele('content').txt(`directory (${e.fileCount} files)`);
+        const fileCount = (await fs.readdir(path.join(baseDir, relPath, e.name))).length;
+
+        entry.ele('content').txt(`directory (${fileCount} files)`);
     } else {
-        const href = `${baseUrl.replace(/\/$/, '')}/files/${e.relPath.split(path.sep).map(encodeURIComponent).join('/')}`;
-        const type = e.mimeType || 'application/octet-stream';
-        let title = 'unknown';
-        if (e.ebook) {
-            if (e.ebook.author)
-                title = `${e.ebook.author} - ${e.ebook.title}`;
-            else
-                title = e.ebook.title;
-        } else {
-            title = e.name;
-        }
-        entry.ele('title').txt(title);
-        if (e.ebook?.author)
-            entry.ele('author')
-                .ele('name').txt(e.ebook?.author)
-        else
-            entry.ele('content', { type: 'text' }).txt(`file (${e.size || 0} bytes)`);
-     
+        const href = `${baseUrl.replace(/\/$/, '')}/files/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}${encodeURIComponent(e.name)}`;
+        const type = getMimeType(e.name);
+        let title = e.name || 'unknown';
+        entry.ele('title').txt(title);   
+        entry.ele('content').txt(`file, size: ${fileStats.size} bytes`);  
         entry.ele('link', { type, rel: 'http://opds-spec.org/acquisition', href }).up();
         entry.ele('link', { rel: 'http://opds-spec.org/acquisition/open-access', href, type });      
     }
@@ -133,14 +130,14 @@ async function buildFeed(
     addPageElement(feed, `Previous Page`, prevHref);
   }
 
-  if (currentNode.children.length > page * perPage) {
+  if (sortedFilelist.length > page * perPage) {
     const nextHref = `${p}?page=${page + 1}&per_page=${perPage}`;
     
     addPageElement(feed, `Next Page`, nextHref);
   }
 
-  if (currentNode.children.length > page * perPage) {
-    const lastPage = Math.ceil(currentNode.children.length / perPage);
+  if (sortedFilelist.length > page * perPage) {
+    const lastPage = Math.ceil(sortedFilelist.length / perPage);
     const lastHref = `${p}?page=${lastPage}&per_page=${perPage}`;
 
     addPageElement(feed, `Last Page`, lastHref);
@@ -149,6 +146,4 @@ async function buildFeed(
   return feed.end({ prettyPrint: true });
 }
 
-
-
-export { getSubseciton, buildFeed };
+export { buildFeed };

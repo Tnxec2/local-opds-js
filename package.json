@@ -6,7 +6,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "ts-node --transpile-only test/buildfeed.test.ts"
   },
   "author": "Nikolas Maletschkin",
   "license": "ISC",
