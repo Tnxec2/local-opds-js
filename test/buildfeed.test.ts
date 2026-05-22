@@ -2,7 +2,7 @@ import assert from 'assert';
 import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
-import { DOMParser } from '@xmldom/xmldom';
+import { DOMParser, Document } from '@xmldom/xmldom';
 
 import { buildFeed } from '../src/model/opds';
 
@@ -30,7 +30,7 @@ function getTextContent(doc: Document, tagName: string) {
 async function testAlphaFeed() {
   const root = await createTempTree();
   try {
-    const xml = await buildFeed(root, 'alpha', 1, 10);
+    const xml = await buildFeed(root, '', 'alpha', 1, 10);
     const doc = parseXml(xml);
 
     assert.strictEqual(getTextContent(doc, 'title'), 'Local OPDS: alpha');
@@ -39,7 +39,7 @@ async function testAlphaFeed() {
     const linkElements = doc.getElementsByTagName('link');
     const selfLink = Array.from(linkElements).find((node) => node.getAttribute('rel') === 'self');
     assert(selfLink, 'Expected self link to exist');
-    assert.strictEqual(selfLink?.getAttribute('href'), `${root}/opds/alpha`);
+    assert.strictEqual(selfLink?.getAttribute('href'), `/opds/alpha`);
 
     const entries = doc.getElementsByTagName('entry');
     
@@ -57,7 +57,7 @@ async function testAlphaFeed() {
 async function testRootFeed() {
   const root = await createTempTree();
   try {
-    const xml = await buildFeed(root, '', 1, 10);
+    const xml = await buildFeed(root, '', '', 1, 10);
     const doc = parseXml(xml);
 
     assert.strictEqual(getTextContent(doc, 'title'), 'Local OPDS: /');
@@ -66,7 +66,7 @@ async function testRootFeed() {
     const linkElements = doc.getElementsByTagName('link');
     const selfLink = Array.from(linkElements).find((node) => node.getAttribute('rel') === 'self');
     assert(selfLink, 'Expected self link to exist');
-    assert.strictEqual(selfLink?.getAttribute('href'), `${root}/opds`);
+    assert.strictEqual(selfLink?.getAttribute('href'), `/opds`);
 
     const entries = doc.getElementsByTagName('entry');
     assert(entries.length >= 3, 'Expected at least three entries for root feed');
@@ -139,7 +139,7 @@ async function testPaginationLinks() {
     const perPage = 2;
     const pages = Math.ceil(files.length / perPage);
     for (let page = 1; page < pages + 1; page++) {
-        const xml = await buildFeed(root, '', page, perPage);
+        const xml = await buildFeed(root, '', '', page, perPage);
 
         const doc = parseXml(xml);
         const titles = Array.from(doc.getElementsByTagName('entry'))
