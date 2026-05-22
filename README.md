@@ -30,10 +30,4 @@ The number of items per page can be set using the `per_page` URL parameter. For 
 
 The page can be specified as follows:
 
-`http://localhost:3000/opds?page=10&per_page=10`
-
-4. Rescan and Status
-
-Go to http://localhost:3000/rescan to re-index
-
-And to http://localhost:3000/status for index status
+`http://localhost:3000/opds?page=10&per_page=15`
