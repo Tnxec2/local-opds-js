@@ -1,6 +1,8 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs/promises';
+const fetch = require("node-fetch");
+const { parseStringPromise } = require("xml2js");
 
 import { buildFeed } from './model/opds';
 
@@ -11,8 +13,6 @@ const CACHE_DIR = path.resolve(process.cwd(), '.cache');
 const app = express();
 
 app.use('/files', express.static(BASE_DIR, { index: false }));
-
-
 
 app.use('/opds', async (req, res) => {
   const urlPath = req.path.replace(/^\//, '');
@@ -30,9 +30,54 @@ app.use('/opds', async (req, res) => {
 });
 
 
-app.get('/', (_req, res) => {
-  res.redirect('/opds');
+// app.get('/', (_req, res) => {
+//   res.redirect('/opds');
+// });
+
+
+/*
+  
+  entrypoints for opds reader app
+
+*/
+
+app.use(express.json());
+app.use(express.static(path.join(__dirname, "public")));
+
+app.post("/fetch", async (req, res) => {
+  try {
+    const { url, username, password } = req.body || {};
+    if (!url) return res.status(400).json({ error: "Missing url" });
+
+    const headers: any = {};
+    if (username || password) {
+      const user = username || "";
+      const pass = password || "";
+      const basic = Buffer.from(user + ":" + pass).toString("base64");
+      headers["Authorization"] = "Basic " + basic;
+    }
+
+    const resp = await fetch(url, { headers });
+    const text = await resp.text();
+
+    // Try to parse XML to JS object
+    let parsed = null;
+    try {
+      parsed = await parseStringPromise(text, {
+        explicitArray: false,
+        mergeAttrs: true,
+      });
+    } catch (err) {
+      // If parsing fails, return raw XML
+      return res.json({ raw: text });
+    }
+
+    return res.json({ xml: parsed });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
 });
+
 
 async function ensureBaseDir() {
   try {

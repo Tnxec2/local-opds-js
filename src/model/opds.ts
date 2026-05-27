@@ -118,7 +118,7 @@ async function buildFeed(
         let title = e.name || 'unknown';
         entry.ele('title').txt(title);   
         entry.ele('content').txt(`file, size: ${fileStats.size} bytes`);  
-        entry.ele('link', { type, rel: 'http://opds-spec.org/acquisition', href }).up();
+        // entry.ele('link', { type, rel: 'http://opds-spec.org/acquisition', href }).up();
         entry.ele('link', { rel: 'http://opds-spec.org/acquisition/open-access', href, type });      
     }
     entry.up();

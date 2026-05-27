@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>OPDS Reader</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main>
+      <h1>OPDS Reader</h1>
+
+      <form id="fetchForm">
+        <label>Server URL
+            <!-- https://www.gutenberg.org/ebooks.opds/ -->
+             <!-- https://mayberry.pub/ -->
+          <input 
+            type="url" 
+            id="url" 
+            placeholder="https://example.com/opds"
+
+            required />
+        </label>
+        <label>Username
+          <input type="text" id="username" placeholder="optional" />
+        </label>
+        <label>Password
+          <input type="password" id="password" placeholder="optional" />
+        </label>
+        <label>&nbsp;
+          <span>
+            <button type="submit">Load</button>
+            <button type="reset" id="form-reset">Reset</button>
+          </span>
+        </label>
+      </form>
+
+      <div id="searchbox">
+        <label>search
+          <input type="text" id="search" placeholder="Search within the feed" />
+        </label>
+        <small>Only if "searchTerms" are supported: first load the feed, then click the search link within the feed links.</small>
+      </div>
+
+      <section id="result">
+        <p class="hint">Feed not loaded</p>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

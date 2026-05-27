@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "prebuild": "rm -rf dist",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json; cp -r reader/public dist/",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "test": "ts-node --transpile-only test/buildfeed.test.ts"
@@ -29,6 +29,8 @@
   "dependencies": {
     "@xmldom/xmldom": "^0.9.10",
     "express": "^5.2.1",
+    "node-fetch": "^2.7.0",
+    "xml2js": "^0.6.2",
     "jszip": "^3.10.1",
     "xmlbuilder2": "^4.0.3"
   }
