@@ -2,8 +2,14 @@ function qs(sel){ return document.querySelector(sel); }
 
 const form = qs('#fetchForm');
 const result = qs('#result');
+const select_catalog_list = qs('#catalog-list');
+
+
+const STORAGE_KEY_SUBMIT_FORM = 'opds_reader_js_submit_form';
+const STORAGE_KEY_CATALOG_LIST = 'opds_reader_js_catalog_list';
 
 const urlStack = [];
+var catalogList = []; // List mit all loaded catalog urls with username/password
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -16,16 +22,33 @@ form.addEventListener('submit', async (e) => {
     username: qs('#username').value,
     password: qs('#password').value
   }
-  localStorage.setItem('opds_reader_js', JSON.stringify(store));
+  localStorage.setItem(STORAGE_KEY_SUBMIT_FORM, JSON.stringify(store));
+
+  const item = catalogList.find(c => c.url === store.url);
+  if (!item) {
+    catalogList.push(store);
+    localStorage.setItem(STORAGE_KEY_CATALOG_LIST, JSON.stringify(catalogList.sort((a, b) => a.url.localeCompare(b.url))));
+    updateCatalogList();
+  }
 });
 
 form.addEventListener('reset', async (e) => {
   e.preventDefault();
-  localStorage.removeItem('opds_reader_js');
+  localStorage.removeItem(STORAGE_KEY_SUBMIT_FORM);
   qs('#url').value = '';
   qs('#username').value = '';
   qs('#password').value = '';
 });
+
+select_catalog_list.addEventListener('click', async (e) => {
+    const s = JSON.parse(select_catalog_list.value);
+  
+    qs('#url').value = s.url;
+    qs('#username').value = s.username;
+    qs('#password').value = s.password;
+    
+});
+    
 
 function escapeHtml(s){
   return String(s)
@@ -309,8 +332,22 @@ function attachLinkHandler(){
 }
 
 
+function updateCatalogList() {
+    qs('#catalog-list').innerHTML = '';
+
+    console.log('catalogList', catalogList)
+
+    catalogList.forEach(c => {
+        const option = document.createElement('option');
+        option.value = JSON.stringify(c);
+        option.text = c.url;
+        qs('#catalog-list').appendChild(option);
+    });
+}
+
+
 document.addEventListener('DOMContentLoaded', () => {
-    const store = localStorage.getItem('opds_reader_js');
+    const store = localStorage.getItem(STORAGE_KEY_SUBMIT_FORM);
     if (store) {
         const storeObj = JSON.parse(store);
         qs('#url').value = storeObj.url;
@@ -320,4 +357,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const url = window.location.origin + "/opds"
         qs('#url').value = url;
     }
+    const catalogListStore = localStorage.getItem(STORAGE_KEY_CATALOG_LIST);
+    console.log('catalogListStore', catalogListStore);
+       
+    if (catalogListStore) {
+        catalogList = JSON.parse(catalogListStore);
+        updateCatalogList();
+    }
+
 });
