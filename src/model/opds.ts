@@ -56,8 +56,8 @@ async function buildFeed(
   const filelist = await fs.readdir(pathToList, { withFileTypes: true });
 
   const sortedFilelist = filelist.sort((a, b) => {
-    if (a.isDirectory() && !b.isDirectory()) return -1;
-    if (!a.isDirectory() && b.isDirectory()) return 1;
+    if ((a.isDirectory() || a.isSymbolicLink()) && !(b.isDirectory() || b.isSymbolicLink())) return -1;
+    if (!(a.isDirectory() || a.isBlockDevice()) && (b.isDirectory() || b.isSymbolicLink())) return 1;
     return a.name.localeCompare(b.name);
   });
  
@@ -105,7 +105,7 @@ async function buildFeed(
     entry.ele('id').txt(`${feedIdForPath(relPath)}:${e.name}`);
     entry.ele('updated').txt(now);
 
-    if (e.isDirectory()){
+    if (e.isDirectory() || e.isSymbolicLink()) {
         const href = `${baseUrl.replace(/\/$/, '')}/opds/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}${encodeURIComponent(e.name)}`;
         entry.ele('title').txt(e.name || 'unknown');
         entry.ele('link', getSubseciton(href)).up();
