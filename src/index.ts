@@ -95,7 +95,7 @@ app.get('/files/*filePath', async (req: any, res) => {
 function readFb2File(fb2Path: string, res: express.Response) {
   fs.readFile(fb2Path)        
   .then((data) => {
-    const converter = new FB2ToEPUBConverter();
+    const converter = new FB2ToEPUBConverter(480, 800, true);
     return converter.convertFB2toEPUB(fb2Path, data);
   })
   .then((epubBlob) => {
@@ -132,7 +132,7 @@ function readFb2ZipFile(fb2ZipPath: string, res: express.Response) {
     return fb2File.async('nodebuffer');
   })
   .then((fb2Buffer) => {
-    return new FB2ToEPUBConverter().convertFB2toEPUB(fb2ZipPath, fb2Buffer);
+    return new FB2ToEPUBConverter(480, 800, true).convertFB2toEPUB(fb2ZipPath, fb2Buffer);
   })
   .then((epubBlob) => {
     return epubBlob.arrayBuffer();

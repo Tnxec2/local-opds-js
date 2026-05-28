@@ -28,10 +28,11 @@
   },
   "dependencies": {
     "@xmldom/xmldom": "^0.9.10",
+    "canvas": "^3.2.3",
     "express": "^5.2.1",
+    "jszip": "^3.10.1",
     "node-fetch": "^2.7.0",
     "xml2js": "^0.6.2",
-    "jszip": "^3.10.1",
     "xmlbuilder2": "^4.0.3"
   }
 }

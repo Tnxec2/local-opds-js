@@ -1,9 +1,11 @@
 import JSZip from "jszip";
 import { DOMParser, Element, Node } from "@xmldom/xmldom";
+import { loadImage, createCanvas, CanvasRenderingContext2D } from 'canvas';
 
 type ManifestItem = { id: string; href: string; mediaType: string; properties?: string }
 type SpineItemref = { idref: string }
-const css = `
+
+const CSS = `
 @charset "UTF-8";
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", "Liberation Sans", Arial, "Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji"; line-height: 1.6; padding: 1rem; }
 h1,h2,h3 { line-height: 1.25; }
@@ -32,6 +34,10 @@ export class FB2ToEPUBConverter {
 
     dom = new DOMParser();
 
+    enableGrayscale = true; // option to disable grayscale conversion for better image quality (some readers have issues with color images from FB2, but can be disabled if desired)
+    coverWidth: number | undefined;
+    coverHeight: number | undefined;
+
     fb2Content: string | null = null;
 
     bookMetadata: {
@@ -39,6 +45,7 @@ export class FB2ToEPUBConverter {
         author?: string;
         language?: string;
         date?: string;
+        coverId?: string;
     } = {};
     epubBlob: Blob | null = null;
 
@@ -52,17 +59,24 @@ export class FB2ToEPUBConverter {
         progress: number;
         errorText: string;
     } = {
-        fileName: "",
-        fileSize: "",
-        fileInfo: "",
-        progress: 0,
-        errorText: "",
-    }
+            fileName: "",
+            fileSize: "",
+            fileInfo: "",
+            progress: 0,
+            errorText: "",
+        }
 
-
+    constructor(
+        coverWidth?: number,
+        coverHeight?: number,
+        enableGrayscale: boolean = true) {
+            this.coverWidth = coverWidth;
+            this.coverHeight = coverHeight;
+            this.enableGrayscale = enableGrayscale;
+     }
 
     async readFB2WithDeclaredEncoding(buf: Buffer<ArrayBuffer>): Promise<string> {
-        
+
         const bytes = new Uint8Array(buf);
 
         // Read the first ~1KB as ASCII to sniff the XML prolog safely
@@ -88,9 +102,9 @@ export class FB2ToEPUBConverter {
 
             const text = await this.readFB2WithDeclaredEncoding(buffer);
             this.fb2Content = text;
-          
+
             // Parse FB2 metadata
-            
+
             const xmlDoc = this.dom.parseFromString(
                 text,
                 "application/xml",
@@ -139,6 +153,19 @@ export class FB2ToEPUBConverter {
                 ? langElem.textContent?.trim()
                 : "en";
 
+            // cover
+            const coverPageElem = titleInfo && titleInfo.getElementsByTagName("coverpage")[0];
+            if (coverPageElem) {
+                const imageElem = coverPageElem.getElementsByTagName("image")[0]
+                if (imageElem) {
+                    const coverHref = getHref(imageElem);
+                    if (coverHref) {
+                        this.bookMetadata.coverId = coverHref.replace(/^#/, "") + '.jpg'; // we’ll save all images as jpg for max compatibility, so add .jpg extension here to match the filename during serialize
+                    }
+                }
+            }
+
+
             // Date (optional)
             const dateElem =
                 titleInfo && titleInfo.getElementsByTagName("date")[0];
@@ -186,26 +213,26 @@ export class FB2ToEPUBConverter {
                 const base64 = (b.textContent || "").replace(
                     /\s+/g,
                     "",
-                );
+                ); 
                 if (id && base64) {
                     binaries[id] = { mime, base64, ext: mimeToExt(mime) };
                 }
             });
 
 
-            /*
-             <body name="notes">
-  <title>
-   <p>Примечания</p>
-  </title>
-  <section id="n_1">
-   <title>
-    <p>1</p>
-   </title>
-   <p>Дворянский титул в Англии.</p>
-  </section>
-  </body>
-  */
+        /*
+    <body name="notes">
+        <title>
+        <p>Примечания</p>
+        </title>
+        <section id="n_1">
+        <title>
+            <p>1</p>
+        </title>
+        <p>Дворянский титул в Англии.</p>
+        </section>
+    </body>
+    */
 
             const notes: {
                 [key: string]: { content: string; title?: string };
@@ -311,8 +338,8 @@ export class FB2ToEPUBConverter {
             this.updateProgress(45);
 
             const oebps = zip.folder("OEBPS");
-            
-            oebps?.file("styles.css", css);
+
+            oebps?.file("styles.css", CSS);
 
             // Write chapter files
             const lang = (this.bookMetadata.language || "en").toLowerCase();
@@ -372,33 +399,87 @@ export class FB2ToEPUBConverter {
                     usedImageHrefs.add(m[1]);
                 }
             });
+            if (this.bookMetadata.coverId) {
+                usedImageHrefs.add(this.bookMetadata.coverId);
+            }
+
 
             // Write only used images to reduce size (fallback to all binaries if none detected)
             const imageKeys: string[] = usedImageHrefs.size
                 ? [...usedImageHrefs]
                 : Object.keys(binaries)
                     .map(
-                        (id) => `${id}.${binaries[id].ext}`,
+                        (id) => {
+                            return `${id}.${binaries[id]}`;
+                        }
                     );
 
             for (const name of imageKeys) {
+                
                 let id, ext;
                 if (name.includes(".")) {
                     id = name.substring(0, name.lastIndexOf("."));
                     ext = name.substring(name.lastIndexOf(".") + 1);
                 } else {
                     id = name;
-                    ext = (binaries[id] && binaries[id].ext) || "jpg";
+                    ext =  (binaries[id] && binaries[id].ext) || "jpg";
                 }
-                const bin = binaries[id];
+                ext = 'jpg'; // force jpg for all images to maximize compatibility (some readers choke on png/gif/svg in FB2)
+
+                console.log('Processing image', name, id, ext);
+
+                let bin = binaries[id] || binaries[name];
                 if (!bin) continue;
                 const arrayBuf = base64ToUint8Array(bin.base64);
-                imagesFolder?.file(`${id}.${ext}`, arrayBuf);
-                manifestItems.push({
-                    id: `img_${id}`,
-                    href: `images/${id}.${ext}`,
-                    mediaType: bin.mime,
-                });
+                console.log('write image', id, ext, 'size', this.formatFileSize(arrayBuf.byteLength));
+
+                try {
+                    const img = await loadImage(`data:${bin.mime};base64,${bin.base64}`);
+                    
+                    const maxWidth = this.coverWidth ? this.coverWidth : img.width;
+                    const maxHeight = this.coverHeight ? this.coverHeight : img.height
+                    
+                    let scale = Math.min(maxWidth / img.width, maxHeight / img.height, 1);
+
+                    const width = Math.round(img.width * scale);
+                    const height = Math.round(img.height * scale);
+
+                    const canvas = createCanvas(width, height);
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                        ctx.fillStyle = '#fff'; // fill with white background to avoid black bg in some readers for transparent images
+                        ctx.fillRect(0, 0, width, height);
+                        ctx.drawImage(img, 0, 0, width, height);
+                        if (this.enableGrayscale) {
+                            applyGrayscale(ctx, width, height);
+                        }
+                        const jpgBuffer = canvas.toBuffer('image/jpeg', { quality: 0.75, progressive: true });
+                        
+                        imagesFolder?.file(`${id}.jpg`, jpgBuffer);
+                        manifestItems.push({
+                            id: `img_${id}`,
+                            href: `images/${id}.jpg`,
+                            mediaType: 'image/jpeg',
+                        });
+                        continue;
+                    } else {
+                        console.warn('Failed to get canvas context, saving original image', id);
+                        imagesFolder?.file(`${id}.${ext}`, arrayBuf);
+                        manifestItems.push({
+                            id: `img_${id}`,
+                            href: `images/${id}.${ext}`,
+                            mediaType: bin.mime,
+                        });
+                    }
+                } catch (err) {
+                    console.warn('Failed to convert image to JPEG, saving original', id, err);
+                    imagesFolder?.file(`${id}.${ext}`, arrayBuf);
+                    manifestItems.push({
+                        id: `img_${id}`,
+                        href: `images/${id}.${ext}`,
+                        mediaType: bin.mime,
+                    });
+                }
             }
 
             this.updateProgress(72);
@@ -419,6 +500,8 @@ export class FB2ToEPUBConverter {
 
             // content.opf
             const uniqueId = "urn:uuid:" + generateUUIDv4();
+
+            
             const contentOpf = buildContentOpf({
                 id: uniqueId,
                 title: this.bookMetadata.title || "Untitled",
@@ -427,6 +510,7 @@ export class FB2ToEPUBConverter {
                 date:
                     this.bookMetadata.date ||
                     new Date().toISOString().slice(0, 10),
+                coverId: this.bookMetadata.coverId,
                 manifestItems,
                 spineItemrefs,
             });
@@ -441,13 +525,7 @@ export class FB2ToEPUBConverter {
                 compressionOptions: { level: 9 },
             });
 
-            // const epubName = `${slugify(this.bookMetadata.title || "book")}.epub`;
-            // const url = URL.createObjectURL(this.epubBlob);
-            // this.Info.downloadHref = url;
-            // this.Info.downloadName = epubName;
-
             this.updateProgress(100);
-
         } catch (err: any) {
             this.showError(err.message || "Conversion failed.");
             console.error("Error during conversion:", err);
@@ -482,21 +560,36 @@ export class FB2ToEPUBConverter {
         return new Promise((resolve, reject) => {
 
             this.handleFile(path, buffer as Buffer<ArrayBuffer>)
-            .then(() => {
-                this.convertToEpub()
-                    .then(() => {
-                        if (this.epubBlob) {
-                            resolve(this.epubBlob);
-                        } else {
-                            reject(new Error("EPUB conversion failed."));
-                        }
-                    })
-                    .catch(err => reject(err));
-            })
-            .catch(err => reject(err));
+                .then(() => {
+                    this.convertToEpub()
+                        .then(() => {
+                            if (this.epubBlob) {
+                                resolve(this.epubBlob);
+                            } else {
+                                reject(new Error("EPUB conversion failed."));
+                            }
+                        })
+                        .catch(err => reject(err));
+                })
+                .catch(err => reject(err));
         });
     }
 
+}
+
+function applyGrayscale(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    // Alpha-blend against white background before grayscaling (handles transparent PNGs)
+    const a = data[i + 3] / 255;
+    const blendedR = data[i] * a + 255 * (1 - a);
+    const blendedG = data[i + 1] * a + 255 * (1 - a);
+    const blendedB = data[i + 2] * a + 255 * (1 - a);
+    const gray = Math.round(blendedR * 0.299 + blendedG * 0.587 + blendedB * 0.114);
+    data[i] = gray; data[i + 1] = gray; data[i + 2] = gray; data[i + 3] = 255;
+  }
+  ctx.putImageData(imageData, 0, 0);
 }
 
 
@@ -597,7 +690,7 @@ function serializeInline(node: any, binaries: any): string {
         case "image": {
             const href = getHref(node).replace(/^#/, "");
             if (href && binaries[href]) {
-                const ext = binaries[href].ext || "jpg";
+                const ext = 'jpg'; // binaries[href].ext || "jpg";
                 return `<img alt="" src="images/${href}.${ext}" />`;
             }
             return "";
@@ -609,10 +702,10 @@ function serializeInline(node: any, binaries: any): string {
 
 
 function getHref(node: Element) {
-    return node.getAttribute("xlink:href") || 
-                node.getAttribute("l:href") || 
-                node.getAttribute("href") || 
-                ""
+    return node.getAttribute("xlink:href") ||
+        node.getAttribute("l:href") ||
+        node.getAttribute("href") ||
+        ""
 }
 
 function serializeSectionToXHTML(section: Element, binaries: any): string {
@@ -675,7 +768,7 @@ function serializeSectionToXHTML(section: Element, binaries: any): string {
         } else if (tag === "image") {
             const href = getHref(node).replace(/^#/, "");
             if (href && binaries[href]) {
-                const ext = binaries[href].ext || "jpg";
+                const ext = 'jpg'; // binaries[href].ext || "jpg";
                 html += `<p><img alt="" src="images/${href}.${ext}" /></p>`;
             }
         } else if (tag === "section") {
@@ -738,6 +831,7 @@ function buildContentOpf(opf: {
     author: string,
     lang: string,
     date: string,
+    coverId?: string,
     manifestItems: ManifestItem[],
     spineItemrefs: SpineItemref[],
 }) {
@@ -746,15 +840,16 @@ function buildContentOpf(opf: {
             const props = it.properties
                 ? ` properties="${it.properties}"`
                 : "";
-            return `<item id="${escapeXML(it.id)}" href="${escapeXML(it.href)}" media-type="${escapeXML(it.mediaType)}"${props} />`;
+            return `\t<item id="${escapeXML(it.id)}" href="${escapeXML(it.href)}" media-type="${escapeXML(it.mediaType)}"${props} />`;
         })
-        .join("\n      ");
+        .join("\n");
     const spineXml = opf.spineItemrefs
-        .map((sr) => `<itemref idref="${escapeXML(sr.idref)}" />`)
-        .join("\n      ");
+        .map((sr) => `\t<itemref idref="${escapeXML(sr.idref)}" />`)
+        .join("\n");
     return `<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="pub-id" version="3.0" xml:lang="${escapeXML(opf.lang)}">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+${opf.coverId ? `<meta name="cover" content="cover"/>` : ""}
 <dc:identifier id="pub-id">${escapeXML(opf.id)}</dc:identifier>
 <dc:title>${escapeXML(opf.title)}</dc:title>
 <dc:language>${escapeXML(opf.lang)}</dc:language>
@@ -763,6 +858,7 @@ function buildContentOpf(opf: {
 <meta property="dcterms:modified">${new Date().toISOString().replace(/\.\d+Z$/, "Z")}</meta>
 </metadata>
 <manifest>
+${opf.coverId ? `\t<item href="images/${escapeXML(opf.coverId)}" id="cover" media-type="image/jpeg"/>` : ""}
 ${manifestXml}
 </manifest>
 <spine>
