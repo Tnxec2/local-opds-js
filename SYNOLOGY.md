@@ -20,6 +20,9 @@
 
 ```bash start.sh
 
+export FB2_TO_EPUB_JPG_MAXWIDTH=480
+export FB2_TO_EPUB_JPG_MAXHEIGHT=800
+export FB2_TO_EPUB_JPG_ENABLE_GRAYSCALE=true
 export PORT=9000 
 export EBOOK_DIR=/volume1/PATH/TO/YOURS/EPUB/Library 
 

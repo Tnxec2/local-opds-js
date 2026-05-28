@@ -12,9 +12,20 @@ import JSZip from 'jszip';
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const BASE_DIR = process.env.EBOOK_DIR || path.resolve(process.cwd(), 'ebooks');
 const CACHE_DIR = path.resolve(process.cwd(), '.cache');
+const FB2_TO_EPUB_JPG_MAXWIDTH = process.env.FB2_TO_EPUB_JPG_MAXWIDTH ? Number(process.env.FB2_TO_EPUB_JPG_MAXWIDTH) : undefined;
+const FB2_TO_EPUB_JPG_MAXHEIGHT = process.env.FB2_TO_EPUB_JPG_MAXHEIGHT ? Number(process.env.FB2_TO_EPUB_JPG_MAXHEIGHT) : undefined;
+const FB2_TO_EPUB_JPG_GRAYSCALE = process.env.FB2_TO_EPUB_JPG_GRAYSCALE === 'true';
 
 const app = express();
 
+console.log(`Configuration:
+  PORT: ${PORT}
+  EBOOK_DIR: ${BASE_DIR}
+  CACHE_DIR: ${CACHE_DIR}
+  FB2_TO_EPUB_JPG_MAXWIDTH: ${FB2_TO_EPUB_JPG_MAXWIDTH || 'original'}
+  FB2_TO_EPUB_JPG_MAXHEIGHT: ${FB2_TO_EPUB_JPG_MAXHEIGHT || 'original'}
+  FB2_TO_EPUB_JPG_GRAYSCALE: ${FB2_TO_EPUB_JPG_GRAYSCALE}
+`);
 
 /*
   TODO: Add search function to opds catalog
@@ -95,7 +106,9 @@ app.get('/files/*filePath', async (req: any, res) => {
 function readFb2File(fb2Path: string, res: express.Response) {
   fs.readFile(fb2Path)        
   .then((data) => {
-    const converter = new FB2ToEPUBConverter(480, 800, true);
+    const converter = new FB2ToEPUBConverter(
+      FB2_TO_EPUB_JPG_MAXWIDTH, FB2_TO_EPUB_JPG_MAXHEIGHT, FB2_TO_EPUB_JPG_GRAYSCALE
+    );
     return converter.convertFB2toEPUB(fb2Path, data);
   })
   .then((epubBlob) => {
@@ -132,7 +145,11 @@ function readFb2ZipFile(fb2ZipPath: string, res: express.Response) {
     return fb2File.async('nodebuffer');
   })
   .then((fb2Buffer) => {
-    return new FB2ToEPUBConverter(480, 800, true).convertFB2toEPUB(fb2ZipPath, fb2Buffer);
+    return new FB2ToEPUBConverter(
+      FB2_TO_EPUB_JPG_MAXWIDTH, 
+      FB2_TO_EPUB_JPG_MAXHEIGHT, 
+      FB2_TO_EPUB_JPG_GRAYSCALE)
+      .convertFB2toEPUB(fb2ZipPath, fb2Buffer);
   })
   .then((epubBlob) => {
     return epubBlob.arrayBuffer();
@@ -156,9 +173,10 @@ function saveAndRespond(epubBuffer: Buffer, savePath: string, res: express.Respo
     .catch((err) => console.error('Failed to save converted EPUB', err));
 
   // Serve the converted EPUB
+  const filename = encodeURIComponent(path.basename(savePath));
   res.set('Content-Type', 'application/epub+zip');
   res.set('Content-Length', epubBuffer.length.toString());
-  res.set('Content-Disposition', `attachment; filename="${path.basename(savePath)}"`);
+  res.set('Content-Disposition', `attachment; filename="${filename}"`);
   return res.send(epubBuffer);
 }
 
