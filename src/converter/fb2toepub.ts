@@ -27,6 +27,7 @@ xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
 </rootfiles>
 </container>`
 
+
 export class FB2ToEPUBConverter {
 
     dom = new DOMParser();
@@ -88,8 +89,6 @@ export class FB2ToEPUBConverter {
             const text = await this.readFB2WithDeclaredEncoding(buffer);
             this.fb2Content = text;
           
-            console.log(`FB2 content loaded, length: ${this.fb2Content.length} characters`);
-
             // Parse FB2 metadata
             
             const xmlDoc = this.dom.parseFromString(
@@ -162,10 +161,8 @@ export class FB2ToEPUBConverter {
 
     // Convert FB2 to EPUB 3.0
     async convertToEpub() {
-        console.log("Starting EPUB conversion...", this.fb2Content?.length, "characters");
         if (!this.fb2Content) return;
         this.hideError();
-        console.log("Starting conversion to EPUB...");
         try {
             this.updateProgress(8);
 
@@ -195,14 +192,55 @@ export class FB2ToEPUBConverter {
                 }
             });
 
+
+            /*
+             <body name="notes">
+  <title>
+   <p>Примечания</p>
+  </title>
+  <section id="n_1">
+   <title>
+    <p>1</p>
+   </title>
+   <p>Дворянский титул в Англии.</p>
+  </section>
+  </body>
+  */
+
+            const notes: {
+                [key: string]: { content: string; title?: string };
+            } = {};
+            const notesBody = xmlDoc.getElementsByTagName("body")
+                .filter(b => b.getAttribute("name") === "notes")[0];
+            if (notesBody) {
+                const noteSections = notesBody.getElementsByTagName("section");
+                Array.from(noteSections).forEach((sec) => {
+                    const id = sec.getAttribute("id");
+                    if (id) {
+                        const titleNode =
+                            sec.getElementsByTagName("title")[0] ||
+                            sec.getElementsByTagName("subtitle")[0];
+                        const title = titleNode
+                            ? textContentDeep(titleNode).trim()
+                            : undefined;
+                        const content = serializeSectionToXHTML(
+                            sec,
+                            binaries,
+                        );
+                        notes[id] = { content, title };
+                    }
+                });
+            }
+
             this.updateProgress(18);
 
             // Extract sections (chapters). Use all <body> sections; if none, wrap whole body.
             const bodies = xmlDoc.getElementsByTagName("body");
-            const chapters: { id: string; title: string; content: string }[] = [];
+            const chapters: { id: string; fb2Id: string | null; title: string; content: string }[] = [];
             let chapterIndex = 1;
 
             function pushSectionAsChapter(section: Element) {
+                const fb2Id = section.getAttribute("id");
                 const titleNode =
                     section.getElementsByTagName("title")[0] ||
                     section.getElementsByTagName("subtitle")[0];
@@ -214,6 +252,7 @@ export class FB2ToEPUBConverter {
                     binaries,
                 );
                 chapters.push({
+                    fb2Id: fb2Id,
                     id: `ch${chapterIndex}`,
                     title: chapTitle || `Chapter ${chapterIndex}`,
                     content: htmlContent,
@@ -286,9 +325,30 @@ export class FB2ToEPUBConverter {
             ];
             const spineItemrefs: SpineItemref[] = [];
 
+            const chapterFileNames = chapters.map((ch, idx) => `chapter-${idx + 1}.xhtml`)
+
             chapters.forEach((ch, idx) => {
-                const filename = `chapter-${idx + 1}.xhtml`;
-                const xhtml = wrapAsXHTML(ch.title, ch.content, lang);
+                const filename = chapterFileNames[idx];
+
+                let content = ch.content;
+                const regex = /href="#([^"]+)"/g;
+                let m;
+                while ((m = regex.exec(content)) !== null) {
+                    const noteId = m[1];
+                    if (notes[noteId]) {
+                        const notesInChaptersIdx = chapters.map(c => c.fb2Id).indexOf(noteId);
+                        if (notesInChaptersIdx > -1) {
+                            const noteFilename = chapterFileNames[notesInChaptersIdx]
+                            content = content.replace(
+                                new RegExp(`href="#${noteId}"`, "g"),
+                                `href="${noteFilename}"`,
+                            );
+                        }
+                    }
+                }
+
+                const xhtml = wrapAsXHTML(ch.title, content, lang);
+
                 oebps?.file(filename, xhtml);
                 manifestItems.push({
                     id: ch.id,
@@ -390,7 +450,7 @@ export class FB2ToEPUBConverter {
 
         } catch (err: any) {
             this.showError(err.message || "Conversion failed.");
-            console.log("Error during conversion:", err);
+            console.error("Error during conversion:", err);
         }
     }
 
@@ -423,7 +483,6 @@ export class FB2ToEPUBConverter {
 
             this.handleFile(path, buffer as Buffer<ArrayBuffer>)
             .then(() => {
-                console.log(`FB2 file loaded: ${path}, size: ${this.Info.fileSize}`);
                 this.convertToEpub()
                     .then(() => {
                         if (this.epubBlob) {
@@ -529,23 +588,16 @@ function serializeInline(node: any, binaries: any): string {
         case "strikethrough":
             return `<s>${children}</s>`;
         case "a": {
-            const href =
-                node.getAttribute("xlink:href") ||
-                node.getAttribute("href") ||
-                "";
+            const href = getHref(node);
             const safeHref = href.startsWith("#")
                 ? href
                 : escapeXML(href);
             return `<a href="${escapeXML(safeHref)}">${children || escapeXML(node.textContent || "")}</a>`;
         }
         case "image": {
-            console.log(`Serializing image node with attributes:`, node.attributes);
-            const href = (
-                node.getAttribute("xlink:href") || node.getAttribute("l:href") || ""
-            ).replace(/^#/, "");
+            const href = getHref(node).replace(/^#/, "");
             if (href && binaries[href]) {
                 const ext = binaries[href].ext || "jpg";
-                console.log(`Serializing image: ${href}, ext: ${ext}`);
                 return `<img alt="" src="images/${href}.${ext}" />`;
             }
             return "";
@@ -553,6 +605,14 @@ function serializeInline(node: any, binaries: any): string {
         default:
             return children; // ignore unknown inlines, keep text
     }
+}
+
+
+function getHref(node: Element) {
+    return node.getAttribute("xlink:href") || 
+                node.getAttribute("l:href") || 
+                node.getAttribute("href") || 
+                ""
 }
 
 function serializeSectionToXHTML(section: Element, binaries: any): string {
@@ -613,10 +673,7 @@ function serializeSectionToXHTML(section: Element, binaries: any): string {
         } else if (tag === "empty-line") {
             html += `<hr />`;
         } else if (tag === "image") {
-            const href = (
-                node.getAttribute("xlink:href") || node.getAttribute("l:href") || ""
-            ).replace(/^#/, "");
-            console.log(`Serializing image node with attributes:`, href);
+            const href = getHref(node).replace(/^#/, "");
             if (href && binaries[href]) {
                 const ext = binaries[href].ext || "jpg";
                 html += `<p><img alt="" src="images/${href}.${ext}" /></p>`;
