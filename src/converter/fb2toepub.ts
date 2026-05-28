@@ -426,12 +426,12 @@ export class FB2ToEPUBConverter {
                 }
                 ext = 'jpg'; // force jpg for all images to maximize compatibility (some readers choke on png/gif/svg in FB2)
 
-                console.log('Processing image', name, id, ext);
+                //console.log('Processing image', name, id, ext);
 
                 let bin = binaries[id] || binaries[name];
                 if (!bin) continue;
                 const arrayBuf = base64ToUint8Array(bin.base64);
-                console.log('write image', id, ext, 'size', this.formatFileSize(arrayBuf.byteLength));
+                // console.log('write image', id, ext, 'size', this.formatFileSize(arrayBuf.byteLength), this.enableGrayscale);
 
                 try {
                     const img = await loadImage(`data:${bin.mime};base64,${bin.base64}`);
