@@ -1,0 +1,715 @@
+import JSZip from "jszip";
+import { DOMParser, Element, Node } from "@xmldom/xmldom";
+
+type ManifestItem = { id: string; href: string; mediaType: string; properties?: string }
+type SpineItemref = { idref: string }
+const css = `
+@charset "UTF-8";
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", "Liberation Sans", Arial, "Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji"; line-height: 1.6; padding: 1rem; }
+h1,h2,h3 { line-height: 1.25; }
+h1 { font-size: 1.6rem; margin: 1rem 0 .5rem; }
+h2 { font-size: 1.4rem; margin: 1rem 0 .5rem; }
+h3 { font-size: 1.2rem; margin: .8rem 0 .4rem; }
+p { margin: .6rem 0; }
+blockquote { margin: .8rem 1rem; padding-left: .8rem; border-left: 3px solid #ccc; }
+.poem { margin: .8rem 0; }
+.stanza { margin: .6rem 0; }
+img { max-width: 100%; height: auto; }
+hr { border: 0; border-top: 1px solid #ddd; margin: 1rem 0; }
+    `.trim();
+
+const META_INF = `<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0"
+xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+<rootfiles>
+<rootfile full-path="OEBPS/content.opf"
+    media-type="application/oebps-package+xml"/>
+</rootfiles>
+</container>`
+
+export class FB2ToEPUBConverter {
+
+    dom = new DOMParser();
+
+    fb2Content: string | null = null;
+
+    bookMetadata: {
+        title?: string;
+        author?: string;
+        language?: string;
+        date?: string;
+    } = {};
+    epubBlob: Blob | null = null;
+
+    Info: {
+        fileName: string;
+        fileSize: string;
+        fileInfo: string;
+        bookTitle?: string;
+        bookAuthor?: string;
+        bookLang?: string;
+        progress: number;
+        errorText: string;
+    } = {
+        fileName: "",
+        fileSize: "",
+        fileInfo: "",
+        progress: 0,
+        errorText: "",
+    }
+
+
+
+    async readFB2WithDeclaredEncoding(buf: Buffer<ArrayBuffer>): Promise<string> {
+        
+        const bytes = new Uint8Array(buf);
+
+        // Read the first ~1KB as ASCII to sniff the XML prolog safely
+        // (the prolog itself is ASCII even if the content is not).
+        const headAscii = Array.from(bytes.slice(0, 1024))
+            .map((b) => String.fromCharCode(b))
+            .join("");
+        const m = headAscii.match(/encoding\s*=\s*["']([\w\-]+)["']/i);
+        const enc = (m ? m[1] : "utf-8").toLowerCase();
+
+        // Supported by TextDecoder in modern browsers: utf-8, windows-1251, koi8-r, iso-8859-5, etc.
+        const decoder = new TextDecoder(enc);
+        return decoder.decode(bytes);
+    }
+
+    // File handling
+    async handleFile(path: string, buffer: Buffer<ArrayBuffer>) {
+        this.hideError();
+        this.epubBlob = null;
+        try {
+            this.Info.fileName = path;
+            this.Info.fileSize = this.formatFileSize(buffer.byteLength);
+
+            const text = await this.readFB2WithDeclaredEncoding(buffer);
+            this.fb2Content = text;
+          
+            console.log(`FB2 content loaded, length: ${this.fb2Content.length} characters`);
+
+            // Parse FB2 metadata
+            
+            const xmlDoc = this.dom.parseFromString(
+                text,
+                "application/xml",
+            );
+
+            // Extract metadata
+            const titleInfo =
+                xmlDoc.getElementsByTagName("description > title-info")[0] ||
+                xmlDoc.getElementsByTagName("title-info")[0];
+
+            // Title
+            const titleElem =
+                titleInfo && titleInfo.getElementsByTagName("book-title")[0];
+            this.bookMetadata.title = titleElem
+                ? titleElem.textContent?.trim()
+                : "Untitled";
+
+            // Author
+            const authorElem =
+                titleInfo && titleInfo.getElementsByTagName("author")[0];
+            if (authorElem) {
+                const firstName =
+                    authorElem.getElementsByTagName("first-name")[0];
+                const lastName = authorElem.getElementsByTagName("last-name")[0];
+                const middleName =
+                    authorElem.getElementsByTagName("middle-name")[0];
+
+                let authorName = "";
+                if (firstName)
+                    authorName += firstName.textContent + " ";
+                if (middleName)
+                    authorName += middleName.textContent + " ";
+                if (lastName) authorName += lastName.textContent;
+                this.bookMetadata.author =
+                    authorName.trim() || "Unknown Author";
+            } else {
+                this.bookMetadata.author = "Unknown Author";
+            }
+
+            // Language
+            const langElem =
+                titleInfo &&
+                (titleInfo.getElementsByTagName("lang")[0] ||
+                    titleInfo.getElementsByTagName("src-lang")[0]);
+            this.bookMetadata.language = langElem
+                ? langElem.textContent?.trim()
+                : "en";
+
+            // Date (optional)
+            const dateElem =
+                titleInfo && titleInfo.getElementsByTagName("date")[0];
+            this.bookMetadata.date = dateElem
+                ? dateElem.getAttribute("value") ||
+                dateElem.textContent?.trim()
+                : "";
+
+            // Display metadata
+            this.Info.bookTitle = this.bookMetadata.title;
+            this.Info.bookAuthor = this.bookMetadata.author;
+            this.Info.bookLang = (
+                this.bookMetadata.language || "en"
+            ).toUpperCase();
+        } catch (error: any) {
+            this.showError(error.message);
+            console.error("Error occurred while handling FB2 file:", error);
+        }
+    }
+
+    // Convert FB2 to EPUB 3.0
+    async convertToEpub() {
+        console.log("Starting EPUB conversion...", this.fb2Content?.length, "characters");
+        if (!this.fb2Content) return;
+        this.hideError();
+        console.log("Starting conversion to EPUB...");
+        try {
+            this.updateProgress(8);
+
+            const xmlDoc = this.dom.parseFromString(
+                this.fb2Content,
+                "text/xml",
+            );
+            if (xmlDoc.getElementsByTagName("parsererror")[0])
+                throw new Error("Failed to parse FB2 XML.");
+
+            // Build image map from <binary id="" content-type=""> base64
+            const binaries: {
+                [key: string]: { mime: string; base64: string; ext: string };
+            } = {};
+            const binaryNodes = xmlDoc.getElementsByTagName("binary");
+            Array.from(binaryNodes).forEach((b) => {
+                const id = b.getAttribute("id");
+                const mime = (
+                    b.getAttribute("content-type") || "image/jpeg"
+                ).toLowerCase();
+                const base64 = (b.textContent || "").replace(
+                    /\s+/g,
+                    "",
+                );
+                if (id && base64) {
+                    binaries[id] = { mime, base64, ext: mimeToExt(mime) };
+                }
+            });
+
+            this.updateProgress(18);
+
+            // Extract sections (chapters). Use all <body> sections; if none, wrap whole body.
+            const bodies = xmlDoc.getElementsByTagName("body");
+            const chapters: { id: string; title: string; content: string }[] = [];
+            let chapterIndex = 1;
+
+            function pushSectionAsChapter(section: Element) {
+                const titleNode =
+                    section.getElementsByTagName("title")[0] ||
+                    section.getElementsByTagName("subtitle")[0];
+                const chapTitle = titleNode
+                    ? textContentDeep(titleNode).trim()
+                    : `Chapter ${chapterIndex}`;
+                const htmlContent = serializeSectionToXHTML(
+                    section,
+                    binaries,
+                );
+                chapters.push({
+                    id: `ch${chapterIndex}`,
+                    title: chapTitle || `Chapter ${chapterIndex}`,
+                    content: htmlContent,
+                });
+                chapterIndex++;
+            }
+
+            if (bodies.length) {
+                Array.from(bodies).forEach((body) => {
+                    const sections =
+                        body.getElementsByTagName("section");
+                    if (sections.length) {
+                        Array.from(sections).forEach((sec) =>
+                            pushSectionAsChapter(sec),
+                        );
+                    } else {
+                        // no sections - take whole body as a single chapter
+                        pushSectionAsChapter(body);
+                    }
+                });
+            } else {
+                // Fallback: use entire document
+                const allSections = xmlDoc.getElementsByTagName("section");
+                if (allSections.length) {
+                    Array.from(allSections).forEach((sec) =>
+                        pushSectionAsChapter(sec),
+                    );
+                } else {
+                    // Last resort: everything
+                    const wrapper = xmlDoc.documentElement;
+                    if (wrapper) pushSectionAsChapter(wrapper);
+                }
+            }
+
+            if (chapters.length === 0)
+                throw new Error(
+                    "No readable content sections found in FB2.",
+                );
+
+            this.updateProgress(35);
+
+            // Create EPUB structure using JSZip
+            const zip = new JSZip();
+
+            // Add mimetype (must be uncompressed)
+            zip.file("mimetype", "application/epub+zip", {
+                compression: "STORE",
+            });
+
+            // META-INF/container.xml
+            zip?.folder("META-INF")?.file(
+                "container.xml",
+                META_INF,
+            );
+
+            this.updateProgress(45);
+
+            const oebps = zip.folder("OEBPS");
+            
+            oebps?.file("styles.css", css);
+
+            // Write chapter files
+            const lang = (this.bookMetadata.language || "en").toLowerCase();
+            const manifestItems: ManifestItem[] = [
+                {
+                    id: "css",
+                    href: "styles.css",
+                    mediaType: "text/css",
+                },
+            ];
+            const spineItemrefs: SpineItemref[] = [];
+
+            chapters.forEach((ch, idx) => {
+                const filename = `chapter-${idx + 1}.xhtml`;
+                const xhtml = wrapAsXHTML(ch.title, ch.content, lang);
+                oebps?.file(filename, xhtml);
+                manifestItems.push({
+                    id: ch.id,
+                    href: filename,
+                    mediaType: "application/xhtml+xml",
+                });
+                spineItemrefs.push({ idref: ch.id });
+            });
+
+            this.updateProgress(60);
+
+            // Save images from binaries (only those referenced get picked up during serialize, but we can save all)
+            const imagesFolder = oebps?.folder("images");
+            const usedImageHrefs: Set<string> = new Set(); // we’ll fill during serialize; also add all binaries to manifest
+
+            // Collect referenced ids from content
+            chapters.forEach((ch) => {
+                const regex = /src="images\/([^"]+)"/g;
+                let m;
+                while ((m = regex.exec(ch.content)) !== null) {
+                    usedImageHrefs.add(m[1]);
+                }
+            });
+
+            // Write only used images to reduce size (fallback to all binaries if none detected)
+            const imageKeys: string[] = usedImageHrefs.size
+                ? [...usedImageHrefs]
+                : Object.keys(binaries)
+                    .map(
+                        (id) => `${id}.${binaries[id].ext}`,
+                    );
+
+            for (const name of imageKeys) {
+                let id, ext;
+                if (name.includes(".")) {
+                    id = name.substring(0, name.lastIndexOf("."));
+                    ext = name.substring(name.lastIndexOf(".") + 1);
+                } else {
+                    id = name;
+                    ext = (binaries[id] && binaries[id].ext) || "jpg";
+                }
+                const bin = binaries[id];
+                if (!bin) continue;
+                const arrayBuf = base64ToUint8Array(bin.base64);
+                imagesFolder?.file(`${id}.${ext}`, arrayBuf);
+                manifestItems.push({
+                    id: `img_${id}`,
+                    href: `images/${id}.${ext}`,
+                    mediaType: bin.mime,
+                });
+            }
+
+            this.updateProgress(72);
+
+            // nav.xhtml (EPUB 3)
+            const navXhtml = buildNavXHTML(
+                this.bookMetadata.title || "Untitled",
+                chapters,
+                lang,
+            );
+            oebps?.file("nav.xhtml", navXhtml);
+            manifestItems.push({
+                id: "nav",
+                href: "nav.xhtml",
+                mediaType: "application/xhtml+xml",
+                properties: "nav",
+            });
+
+            // content.opf
+            const uniqueId = "urn:uuid:" + generateUUIDv4();
+            const contentOpf = buildContentOpf({
+                id: uniqueId,
+                title: this.bookMetadata.title || "Untitled",
+                author: this.bookMetadata.author || "Unknown Author",
+                lang,
+                date:
+                    this.bookMetadata.date ||
+                    new Date().toISOString().slice(0, 10),
+                manifestItems,
+                spineItemrefs,
+            });
+            oebps?.file("content.opf", contentOpf);
+
+            this.updateProgress(86);
+
+            // Generate EPUB blob
+            this.epubBlob = await zip.generateAsync({
+                type: "blob",
+                compression: "DEFLATE",
+                compressionOptions: { level: 9 },
+            });
+
+            // const epubName = `${slugify(this.bookMetadata.title || "book")}.epub`;
+            // const url = URL.createObjectURL(this.epubBlob);
+            // this.Info.downloadHref = url;
+            // this.Info.downloadName = epubName;
+
+            this.updateProgress(100);
+
+        } catch (err: any) {
+            this.showError(err.message || "Conversion failed.");
+            console.log("Error during conversion:", err);
+        }
+    }
+
+    // ===== Helpers =====
+
+    updateProgress(val: number) {
+        this.Info.bookAuthor = `${val}%`;
+    }
+
+    formatFileSize(bytes: number): string {
+        if (bytes < 1024) return bytes + " B";
+        const units = ["KB", "MB", "GB"];
+        let i = -1;
+        do {
+            bytes = bytes / 1024;
+            i++;
+        } while (bytes >= 1024 && i < units.length - 1);
+        return bytes.toFixed(2) + " " + units[i];
+    }
+
+    showError(msg: string) {
+        this.Info.errorText = msg;
+    }
+    hideError() {
+        this.Info.errorText = "";
+    }
+
+    convertFB2toEPUB(path: string, buffer: Buffer<ArrayBufferLike>): Promise<Blob> {
+        return new Promise((resolve, reject) => {
+
+            this.handleFile(path, buffer as Buffer<ArrayBuffer>)
+            .then(() => {
+                console.log(`FB2 file loaded: ${path}, size: ${this.Info.fileSize}`);
+                this.convertToEpub()
+                    .then(() => {
+                        if (this.epubBlob) {
+                            resolve(this.epubBlob);
+                        } else {
+                            reject(new Error("EPUB conversion failed."));
+                        }
+                    })
+                    .catch(err => reject(err));
+            })
+            .catch(err => reject(err));
+        });
+    }
+
+}
+
+
+function textContentDeep(node: Node): string {
+    // Get visible concatenated text (preserves Unicode)
+    if (node.nodeType === 3) return node.nodeValue || "";
+    let s = "";
+    (Array.isArray(node.childNodes) ? node.childNodes : []).forEach((n) => (s += textContentDeep(n)));
+    return s;
+}
+
+function escapeXML(s: string) {
+    return s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function slugify(s: string) {
+    return (
+        (s || "book")
+            .normalize("NFKD")
+            .replace(/[\u0300-\u036f]/g, "") // strip diacritics
+            .replace(/[^\w\s.-]+/g, "") // remove unsafe chars but keep unicode word chars
+            .trim()
+            .replace(/\s+/g, "_")
+            .substring(0, 80) || "book"
+    );
+}
+
+function generateUUIDv4() {
+    // RFC4122 v4
+    const rnd = crypto.getRandomValues(new Uint8Array(16));
+    rnd[6] = (rnd[6] & 0x0f) | 0x40;
+    rnd[8] = (rnd[8] & 0x3f) | 0x80;
+    const hex = [...rnd]
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function mimeToExt(mime: string): string {
+    if (!mime) return "jpg";
+    if (mime.includes("jpeg") || mime.includes("jpg")) return "jpg";
+    if (mime.includes("png")) return "png";
+    if (mime.includes("gif")) return "gif";
+    if (mime.includes("svg")) return "svg";
+    if (mime.includes("webp")) return "webp";
+    return "bin";
+}
+
+function base64ToUint8Array(base64: string): Uint8Array {
+    // Decode Base64 safely in browser (handles Unicode bytestreams)
+    const binaryString = atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++)
+        bytes[i] = binaryString.charCodeAt(i);
+    return bytes;
+}
+
+function serializeInline(node: any, binaries: any): string {
+    // Convert common FB2 inline tags to XHTML
+
+    if (node.nodeType === 3) {
+        return escapeXML(node.nodeValue || "");
+    }
+
+    if (node.nodeType !== 1) return "";
+
+    const tag = node.nodeName.toLowerCase();
+    const children = [...node.childNodes]
+        .map((n) => serializeInline(n, binaries))
+        .join("");
+
+    switch (tag) {
+        case "emphasis":
+            return `<em>${children}</em>`;
+        case "strong":
+            return `<strong>${children}</strong>`;
+        case "code":
+            return `<code>${children}</code>`;
+        case "sub":
+            return `<sub>${children}</sub>`;
+        case "sup":
+            return `<sup>${children}</sup>`;
+        case "strikethrough":
+            return `<s>${children}</s>`;
+        case "a": {
+            const href =
+                node.getAttribute("xlink:href") ||
+                node.getAttribute("href") ||
+                "";
+            const safeHref = href.startsWith("#")
+                ? href
+                : escapeXML(href);
+            return `<a href="${escapeXML(safeHref)}">${children || escapeXML(node.textContent || "")}</a>`;
+        }
+        case "image": {
+            console.log(`Serializing image node with attributes:`, node.attributes);
+            const href = (
+                node.getAttribute("xlink:href") || node.getAttribute("l:href") || ""
+            ).replace(/^#/, "");
+            if (href && binaries[href]) {
+                const ext = binaries[href].ext || "jpg";
+                console.log(`Serializing image: ${href}, ext: ${ext}`);
+                return `<img alt="" src="images/${href}.${ext}" />`;
+            }
+            return "";
+        }
+        default:
+            return children; // ignore unknown inlines, keep text
+    }
+}
+
+function serializeSectionToXHTML(section: Element, binaries: any): string {
+    // Map FB2 block-level elements to semantic XHTML
+    let html = "";
+    const nodes = [...section.children];
+
+    // optional title
+    const titleNode = section.getElementsByTagName("title")[0];
+    if (titleNode) {
+        const t = titleNode.getElementsByTagName("p")
+            ? [...titleNode.getElementsByTagName("p")]
+                .map((p) => serializeInline(p, binaries))
+                .join(" ")
+            : escapeXML(textContentDeep(titleNode).trim());
+        html += `<h2>${t}</h2>`;
+    }
+
+    for (const node of nodes) {
+        if (node.nodeType !== 1) continue;
+        const tag = node.nodeName.toLowerCase();
+        if (tag === "title") continue;
+
+        if (tag === "p") {
+            html += `<p>${serializeInline(node, binaries)}</p>`;
+        } else if (tag === "subtitle") {
+            html += `<h3>${serializeInline(node, binaries)}</h3>`;
+        } else if (tag === "epigraph") {
+            const inner = [...node.getElementsByTagName("p")]
+                .map((p) => serializeInline(p, binaries))
+                .join("");
+            html += `<blockquote>${inner}</blockquote>`;
+        } else if (tag === "cite") {
+            const inner = [...node.children]
+                .map((n) => serializeInline(n, binaries))
+                .join("");
+            html += `<blockquote>${inner}</blockquote>`;
+        } else if (tag === "poem") {
+            html += `<div class="poem">`;
+            const title = node.getElementsByTagName("title")[0];
+            if (title)
+                html += `<h3>${serializeInline(title, binaries)}</h3>`;
+            Array.from(node.getElementsByTagName("stanza")).forEach(
+                (st: any) => {
+                    html += `<div class="stanza">`;
+                    Array.from(st.getElementsByTagName("v")).forEach(
+                        (v: any) => {
+                            html += `<div>${serializeInline(v, binaries)}</div>`;
+                        },
+                    );
+                    html += `</div>`;
+                },
+            );
+            const author = node.getElementsByTagName("text-author")[0];
+            if (author)
+                html += `<div class="text-right italic">${serializeInline(author, binaries)}</div>`;
+            html += `</div>`;
+        } else if (tag === "empty-line") {
+            html += `<hr />`;
+        } else if (tag === "image") {
+            const href = (
+                node.getAttribute("xlink:href") || node.getAttribute("l:href") || ""
+            ).replace(/^#/, "");
+            console.log(`Serializing image node with attributes:`, href);
+            if (href && binaries[href]) {
+                const ext = binaries[href].ext || "jpg";
+                html += `<p><img alt="" src="images/${href}.${ext}" /></p>`;
+            }
+        } else if (tag === "section") {
+            // nested section -> recursive
+            html += serializeSectionToXHTML(node, binaries);
+        } else {
+            // Unknown block -> try inline serialization inside <p>
+            html += `<p>${serializeInline(node, binaries)}</p>`;
+        }
+    }
+    return html || "<p></p>";
+}
+
+function wrapAsXHTML(title: string, bodyContent: string, lang: string): string {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="${escapeXML(lang)}" lang="${escapeXML(lang)}">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${escapeXML(title)}</title>
+<link rel="stylesheet" type="text/css" href="styles.css" />
+</head>
+<body>
+<h1>${escapeXML(title)}</h1>
+${bodyContent}
+</body>
+</html>`;
+}
+
+function buildNavXHTML(bookTitle: string, chapters: any[], lang: string): string {
+    const lis = chapters
+        .map(
+            (ch, i) =>
+                `<li><a href="chapter-${i + 1}.xhtml">${escapeXML(ch.title)}</a></li>`,
+        )
+        .join("\n");
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${escapeXML(lang)}" lang="${escapeXML(lang)}">
+<head>
+<meta charset="UTF-8" />
+<title>Table of Contents</title>
+<link rel="stylesheet" type="text/css" href="styles.css" />
+</head>
+<body>
+<nav epub:type="toc" id="toc">
+<h2>${escapeXML(bookTitle)}</h2>
+<ol>
+${lis}
+</ol>
+</nav>
+</body>
+</html>`;
+}
+
+function buildContentOpf(opf: {
+    id: string,
+    title: string,
+    author: string,
+    lang: string,
+    date: string,
+    manifestItems: ManifestItem[],
+    spineItemrefs: SpineItemref[],
+}) {
+    const manifestXml = opf.manifestItems
+        .map((it) => {
+            const props = it.properties
+                ? ` properties="${it.properties}"`
+                : "";
+            return `<item id="${escapeXML(it.id)}" href="${escapeXML(it.href)}" media-type="${escapeXML(it.mediaType)}"${props} />`;
+        })
+        .join("\n      ");
+    const spineXml = opf.spineItemrefs
+        .map((sr) => `<itemref idref="${escapeXML(sr.idref)}" />`)
+        .join("\n      ");
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="pub-id" version="3.0" xml:lang="${escapeXML(opf.lang)}">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:identifier id="pub-id">${escapeXML(opf.id)}</dc:identifier>
+<dc:title>${escapeXML(opf.title)}</dc:title>
+<dc:language>${escapeXML(opf.lang)}</dc:language>
+<dc:creator>${escapeXML(opf.author)}</dc:creator>
+<dc:date>${escapeXML(opf.date)}</dc:date>
+<meta property="dcterms:modified">${new Date().toISOString().replace(/\.\d+Z$/, "Z")}</meta>
+</metadata>
+<manifest>
+${manifestXml}
+</manifest>
+<spine>
+${spineXml}
+</spine>
+</package>`;
+}
