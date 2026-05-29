@@ -76,7 +76,7 @@ async function buildFeed(
 
   const now = new Date().toISOString();
   const feed = create({ version: '1.0', encoding: 'utf-8' }).ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
-  feed.ele('title').txt(`Local OPDS: ${relPath || '/'}`);
+  feed.ele('title').txt(`Local OPDS (${format || 'default'}): ${relPath || '/'}`);
   feed.ele('id').txt(feedIdForPath(relPath));
   feed.ele('updated').txt(now);
 
