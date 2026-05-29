@@ -16,6 +16,10 @@ function getSubseciton(href: string) : SubsectionLink {
     return { type: "application/atom+xml;profile=opds-catalog", rel: 'subsection', href: href }
 }
 
+function getFeedLink(feed: XMLBuilder, href: string, rel: string) {
+    feed.ele('link', { rel: rel, href: href, type: 'type="application/atom+xml;profile=opds-catalog"' }).up();
+}
+
 function feedIdForPath(relPath: string) {
   return `urn:local-opds:${relPath || '/'}`;
 }
@@ -49,6 +53,7 @@ async function buildFeed(
     relPath: string, 
     page: number = 1,
     perPage: number = 10,
+    format: 'x4' | 'x3' | '' = ''
 ): Promise<string> {
   
   const pathSegments = relPath ? relPath.split(path.sep).filter(s => s) : [];
@@ -76,29 +81,34 @@ async function buildFeed(
   feed.ele('updated').txt(now);
 
   // self link
-  const selfHref = `${baseUrl.replace(/\/$/, '')}/opds${relPath ? '/' + relPath.split(path.sep).map(encodeURIComponent).join('/') : ''}`;
-  feed.ele('link', { rel: 'self', href: selfHref }).up();
+  const selfHref = `${baseUrl.replace(/\/$/, '')}/${format}opds${relPath ? '/' + relPath.split(path.sep).map(encodeURIComponent).join('/') : ''}`;
+  // feed.ele('link', { rel: 'self', href: selfHref, type: 'type="application/atom+xml;profile=opds-catalog"' }).up();
+  getFeedLink(feed, selfHref, 'self');
 
   const upHref = path.dirname(relPath);
   if (relPath) {
-    const upLinkHref = `${baseUrl.replace(/\/$/, '')}/opds${upHref ? '/' + upHref.split(path.sep).filter(s => s !== '.').map(encodeURIComponent).join('/') : ''}`;
+    const upLinkHref = `${baseUrl.replace(/\/$/, '')}/${format}opds${upHref ? '/' + upHref.split(path.sep).filter(s => s !== '.').map(encodeURIComponent).join('/') : ''}`;
     
-    addPageElement(feed, `Up`, upLinkHref);
+    // addPageElement(feed, `Up`, upLinkHref);
+    getFeedLink(feed, upLinkHref, 'up');
   }
 
-  const p = `${baseUrl.replace(/\/$/, '')}/opds${relPath ? '/' + relPath.split(path.sep).map(encodeURIComponent).join('/') : ''}`;
+  const p = `${baseUrl.replace(/\/$/, '')}/${format}opds${relPath ? '/' + relPath.split(path.sep).map(encodeURIComponent).join('/') : ''}`;
 
   if (page > 1) {
     const firstPageHref = `${p}?page=1&per_page=${perPage}`;
-    addPageElement(feed, `First Page`, firstPageHref);
+    //addPageElement(feed, `First Page`, firstPageHref);
+    getFeedLink(feed, firstPageHref, 'first');
 
     const prevHref = `${p}?page=${page - 1}&per_page=${perPage}`;
-    addPageElement(feed, `Previous Page`, prevHref);
+    //addPageElement(feed, `Previous Page`, prevHref);
+    getFeedLink(feed, prevHref, 'previous');
   }
 
   if (sortedFilelist.length > page * perPage) {
     const nextHref = `${p}?page=${page + 1}&per_page=${perPage}`;
-    addPageElement(feed, `Next Page`, nextHref);
+    //addPageElement(feed, `Next Page`, nextHref);
+    getFeedLink(feed, nextHref, 'next');
   }
 
   for (const e of entries) {
@@ -110,7 +120,7 @@ async function buildFeed(
     entry.ele('updated').txt(now);
 
     if (e.isDirectory() || e.isSymbolicLink()) {
-        const href = `${baseUrl.replace(/\/$/, '')}/opds/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}${encodeURIComponent(e.name)}`;
+        const href = `${baseUrl.replace(/\/$/, '')}/${format}opds/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}${encodeURIComponent(e.name)}`;
         entry.ele('title').txt(e.name || 'unknown');
         entry.ele('link', getSubseciton(href)).up();
         const fileCount = (await fs.readdir(path.join(baseDir, relPath, e.name))).length;
@@ -129,11 +139,11 @@ async function buildFeed(
                 await fs.access(epubPath);
             } catch {
                 // file does not exist, add link for conversion
-                const convertHref = `${baseUrl.replace(/\/$/, '')}/files/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}${encodeURIComponent(epubName)}`;
+                const convertHref = `${baseUrl.replace(/\/$/, '')}/${format}convert/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}${encodeURIComponent(epubName)}`;
                 entry.ele('link', { rel: 'http://opds-spec.org/acquisition/open-access', href: convertHref, type: 'application/epub+zip' }).up();
             }
         }
-        const href = `${baseUrl.replace(/\/$/, '')}/files/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}${encodeURIComponent(e.name)}`;
+        const href = `${baseUrl.replace(/\/$/, '')}/${format}files/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}${encodeURIComponent(e.name)}`;
         entry.ele('link', { rel: 'http://opds-spec.org/acquisition/open-access', href, type });      
     }
     entry.up();
@@ -156,6 +166,7 @@ async function buildFeed(
     const lastHref = `${p}?page=${lastPage}&per_page=${perPage}`;
 
     addPageElement(feed, `Last Page`, lastHref);
+    getFeedLink(feed, lastHref, 'last');
   }
 
   return feed.end({ prettyPrint: true });

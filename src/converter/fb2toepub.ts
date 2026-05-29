@@ -34,7 +34,7 @@ export class FB2ToEPUBConverter {
 
     dom = new DOMParser();
 
-    enableGrayscale = true; // option to disable grayscale conversion for better image quality (some readers have issues with color images from FB2, but can be disabled if desired)
+    enableGrayscale = false; // option to disable grayscale conversion for better image quality (some readers have issues with color images from FB2, but can be disabled if desired)
     coverWidth: number | undefined;
     coverHeight: number | undefined;
 
@@ -66,13 +66,22 @@ export class FB2ToEPUBConverter {
             errorText: "",
         }
 
-    constructor(
-        coverWidth?: number,
-        coverHeight?: number,
-        enableGrayscale: boolean = true) {
-            this.coverWidth = coverWidth;
-            this.coverHeight = coverHeight;
-            this.enableGrayscale = enableGrayscale;
+    constructor(format: string | null = null) {
+        console.log('FB2ToEPUBConverter initialized with format', format);
+        switch (format) {
+            case 'x4':
+                this.coverWidth = 480;
+                this.coverHeight = 800;
+                this.enableGrayscale = true;
+                break;
+            case 'x3':
+                this.coverWidth = 528;
+                this.coverHeight = 792;
+                this.enableGrayscale = true;
+                break;
+            default:
+                break;
+        }
      }
 
     async readFB2WithDeclaredEncoding(buf: Buffer<ArrayBuffer>): Promise<string> {

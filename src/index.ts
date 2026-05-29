@@ -7,14 +7,13 @@ const { parseStringPromise } = require("xml2js");
 import { buildFeed } from './model/opds';
 import { FB2ToEPUBConverter } from './converter/fb2toepub';
 import JSZip from 'jszip';
+import { request } from 'https';
 
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const BASE_DIR = process.env.EBOOK_DIR || path.resolve(process.cwd(), 'ebooks');
 const CACHE_DIR = path.resolve(process.cwd(), '.cache');
-const FB2_TO_EPUB_JPG_MAXWIDTH = process.env.FB2_TO_EPUB_JPG_MAXWIDTH ? Number(process.env.FB2_TO_EPUB_JPG_MAXWIDTH) : undefined;
-const FB2_TO_EPUB_JPG_MAXHEIGHT = process.env.FB2_TO_EPUB_JPG_MAXHEIGHT ? Number(process.env.FB2_TO_EPUB_JPG_MAXHEIGHT) : undefined;
-const FB2_TO_EPUB_JPG_GRAYSCALE = process.env.FB2_TO_EPUB_JPG_GRAYSCALE === 'true';
+
 
 const app = express();
 
@@ -22,17 +21,28 @@ console.log(`Configuration:
   PORT: ${PORT}
   EBOOK_DIR: ${BASE_DIR}
   CACHE_DIR: ${CACHE_DIR}
-  FB2_TO_EPUB_JPG_MAXWIDTH: ${FB2_TO_EPUB_JPG_MAXWIDTH || 'original'}
-  FB2_TO_EPUB_JPG_MAXHEIGHT: ${FB2_TO_EPUB_JPG_MAXHEIGHT || 'original'}
-  FB2_TO_EPUB_JPG_GRAYSCALE: ${FB2_TO_EPUB_JPG_GRAYSCALE}
 `);
 
 /*
   TODO: Add search function to opds catalog
 */
 
+app.use('/files', express.static(BASE_DIR, { index: false }));
+app.use('/x4files', express.static(BASE_DIR, { index: false }));
+app.use('/x3files', express.static(BASE_DIR, { index: false }));
+
 // Download endpoint with FB2 to EPUB conversion support
-app.get('/files/*filePath', async (req: any, res) => {
+app.get('/convert/*filePath', async (req: any, res) => {
+  getConvertedFile(null, req, res);
+});
+app.get('/x4convert/*filePath', async (req: any, res) => {
+  getConvertedFile('x4', req, res);
+});
+app.get('/x3convert/*filePath', async (req: any, res) => {
+  getConvertedFile('x3', req, res);
+});
+
+async function getConvertedFile(format: string | null, req: any, res: express.Response) {  
   try {
     const filePath = req.params.filePath.join("/");
     
@@ -60,29 +70,14 @@ app.get('/files/*filePath', async (req: any, res) => {
       }
     }
 
-    // if the requested file is .fb2.epub or .fb2.zip.epub, check if it exists first
-    // if it exists, serve it directly    
-    try {
-      await fs.access(fullPath)
-      
-      await fs.unlink(fullPath) // only for testing
-      
-      // File exists, serve it
-      // return res.download(fullPath); // enable this for deploy
-    } catch {
-      // .fb2.epub doesn't exist, check if .fb2 file exists
-    }
-
     if (fullPath.endsWith('.fb2.epub')) {
       const fb2Path = fullPath.replace(/\.fb2\.epub$/, '.fb2');
       console.log(`Checking for FB2 file: ${fb2Path}`);
       try {
         await fs.access(fb2Path);
-        // FB2 file exists, convert to EPUB
         console.log(`Converting FB2 to EPUB: ${fb2Path}`);
-        readFb2File(fb2Path, res);
+        readFb2File(format, fb2Path, res);
       } catch (err) {
-        // FB2 file doesn't exist either
         return res.status(404).json({ error: `File not found: ${fb2Path}` });
       }
     }
@@ -91,9 +86,8 @@ app.get('/files/*filePath', async (req: any, res) => {
       console.log(`Checking for FB2.ZIP file: ${fb2Path}`);
       try {
         await fs.access(fb2Path);
-        readFb2ZipFile(fb2Path, res);
+        readFb2ZipFile(format, fb2Path, res);
       } catch (err) {
-        // FB2 file doesn't exist either
         return res.status(404).json({ error: `File not found: ${fb2Path}` });
       }
     }
@@ -101,14 +95,12 @@ app.get('/files/*filePath', async (req: any, res) => {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
-});
+};
 
-function readFb2File(fb2Path: string, res: express.Response) {
+function readFb2File(format: string | null, fb2Path: string, res: express.Response) {
   fs.readFile(fb2Path)        
   .then((data) => {
-    const converter = new FB2ToEPUBConverter(
-      FB2_TO_EPUB_JPG_MAXWIDTH, FB2_TO_EPUB_JPG_MAXHEIGHT, FB2_TO_EPUB_JPG_GRAYSCALE
-    );
+    const converter = new FB2ToEPUBConverter(format);
     return converter.convertFB2toEPUB(fb2Path, data);
   })
   .then((epubBlob) => {
@@ -116,7 +108,7 @@ function readFb2File(fb2Path: string, res: express.Response) {
   })
   .then((result) => {
     const epubBuffer = Buffer.from(result);
-    const fb2epubPath = fb2Path.replace(/\.[^.]+$/, '.fb2.epub');
+    const fb2epubPath = fb2Path.replace(/\.fb2$/, format ? `.${format}.epub` : '.epub');
     saveAndRespond(epubBuffer, fb2epubPath, res);
   })
   .catch((err) => {
@@ -125,7 +117,7 @@ function readFb2File(fb2Path: string, res: express.Response) {
   });
 }
 
-function readFb2ZipFile(fb2ZipPath: string, res: express.Response) {
+function readFb2ZipFile(format: string | null, fb2ZipPath: string, res: express.Response) {
   // FB2 file exists, convert to EPUB
   console.log(`Converting FB2.ZIP to EPUB: ${fb2ZipPath}`);
   // extract FB2 from ZIP and convert to EPUB
@@ -145,10 +137,7 @@ function readFb2ZipFile(fb2ZipPath: string, res: express.Response) {
     return fb2File.async('nodebuffer');
   })
   .then((fb2Buffer) => {
-    return new FB2ToEPUBConverter(
-      FB2_TO_EPUB_JPG_MAXWIDTH, 
-      FB2_TO_EPUB_JPG_MAXHEIGHT, 
-      FB2_TO_EPUB_JPG_GRAYSCALE)
+    return new FB2ToEPUBConverter(format)
       .convertFB2toEPUB(fb2ZipPath, fb2Buffer);
   })
   .then((epubBlob) => {
@@ -156,7 +145,7 @@ function readFb2ZipFile(fb2ZipPath: string, res: express.Response) {
   })
   .then((result) => {
     const epubBuffer = Buffer.from(result);
-    const fb2epubPath = fb2ZipPath.replace(/\.[^.]+$/, '.fb2.zip.epub');
+    const fb2epubPath = fb2ZipPath.replace(/\.fb2\.zip$/, format ? `.${format}.epub` : '.epub');
 
     saveAndRespond(epubBuffer, fb2epubPath, res);
   })
@@ -185,19 +174,31 @@ function saveAndRespond(epubBuffer: Buffer, savePath: string, res: express.Respo
 // app.use('/files', express.static(BASE_DIR, { index: false }));
 
 app.use('/opds', async (req, res) => {
+  await getOpdsFeed(req, res);
+});
+
+app.use('/x4opds', async (req, res) => {
+  await getOpdsFeed(req, res, 'x4');
+});
+
+app.use('/x3opds', async (req, res) => {
+  await getOpdsFeed(req, res, 'x3');
+});
+
+async function getOpdsFeed(req: express.Request, res: express.Response, format: 'x4' | 'x3' | '' = '') {
   const urlPath = req.path.replace(/^\//, '');
   try {
     const relPath = decodeURIComponent(urlPath || '');
     const page = req.query.page ? parseInt(req.query.page as string, 10) : 1;
     const perPage = req.query.per_page ? parseInt(req.query.per_page as string, 10) : 18;
-    const xml = await buildFeed(BASE_DIR, `${req.protocol}://${req.get('host')}`, relPath, page, perPage);
+    const xml = await buildFeed(BASE_DIR, `${req.protocol}://${req.get('host')}`, relPath, page, perPage, format);
     res.set('Content-Type', 'application/atom+xml; charset=utf-8');
     res.send(xml);
   } catch (err: any) {
     console.error(err);
     res.status(500).json({ error: String(err) });
   }
-});
+}
 
 
 // app.get('/', (_req, res) => {
@@ -263,7 +264,9 @@ ensureBaseDir()
     app.listen(PORT, () => {
       console.log(`Base directory: ${BASE_DIR}`);
       console.log(`Local OPDS server listening on http://localhost:${PORT}/opds`);
-      console.log(`Serving files from ${BASE_DIR} at /files/`);
+      console.log(`Local OPDS server for Xteink X4 listening on http://localhost:${PORT}/x4opds`);
+      console.log(`Local OPDS server for Xteink X3listening on http://localhost:${PORT}/x3opds`);
+      // console.log(`Serving files from ${BASE_DIR} at /files/`);
     });
   }).catch(err => {
   console.error('Failed to prepare base directory', err);
