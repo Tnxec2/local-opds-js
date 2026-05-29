@@ -118,6 +118,7 @@ pre {
 
 .links a {
   display: block;
+  width: fit-content;
   margin-right: 8px;
   margin-bottom: 4px;
 }
