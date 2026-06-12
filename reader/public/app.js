@@ -211,6 +211,7 @@ async function renderXmlObject(obj){
         html += '<div class="links"><div class="links-content">';
         
       for (const l of llist) {
+            const title = l.title || l['@_title'] || '';
             const href = l.href || l['@_href'] || l;
             const rel = l.rel || '';
             const type = l.type || '';
@@ -221,7 +222,7 @@ async function renderXmlObject(obj){
                     continue
 
                 if (rel.includes("http://opds-spec.org/acquisition")) {
-                    html += `<a href="${baseHref + escapeHtml(href)}" target="_blank" rel="noreferrer">[⬇️ Download ${escapeHtml(type)}]</a> `;
+                    html += `<a href="${baseHref + escapeHtml(href)}" target="_blank" rel="noreferrer">[⬇️ Download ${escapeHtml(title)} ${escapeHtml(type)}]</a> `;
                 } else if (rel === "http://opds-spec.org/image") {
                     html += `<a href="${baseHref + escapeHtml(href)}" target="_blank" rel="noreferrer">
                     <img src="${baseHref + escapeHtml(href)}" width="50" alt="Cover" class="image" />

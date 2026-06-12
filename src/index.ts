@@ -1,13 +1,21 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs/promises';
-const fetch = require("node-fetch");
-const { parseStringPromise } = require("xml2js");
-
-import { buildFeed } from './model/opds';
-import { FB2ToEPUBConverter } from './converter/fb2toepub';
 import JSZip from 'jszip';
-import { request } from 'https';
+
+import fetch from "node-fetch";
+import { parseStringPromise } from "xml2js";
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+import { buildMainFeed, buildFolderFeed, buildAuthorFeed, buildTitleFeed } from './opds/opds.js';
+
+import { Indexer } from './indexer/indexer.js';
+import { FB2ToEPUBConverter } from './converter/fb2toepub.js';
+import { ePubXteinkCleaner } from './converter/epub-xteink.js';
 
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
@@ -19,7 +27,7 @@ const app = express();
 
 console.log(`Configuration:
   PORT: ${PORT}
-  EBOOK_DIR: ${BASE_DIR}
+  BASE_DIR: ${BASE_DIR}
   CACHE_DIR: ${CACHE_DIR}
 `);
 
@@ -61,8 +69,13 @@ async function getConvertedFile(format: string | null, req: any, res: express.Re
     // check for fb2.epub and fb2.zip.epub  
     // if the requested file is not .fb2.epub or .fb2.zip.epub, serve it directly if it exists
     if (!fullPath.endsWith('.fb2.epub') && !fullPath.endsWith('.fb2.zip.epub')) {
+      
+      if (fullPath.endsWith('.epub')) {
+        return epubToXteinkEpub(format, fullPath, res);
+      } 
       try {
-        await fs.access(fullPath);
+        // check if file exists
+        await fs.access(fullPath);         
         // File exists, serve it
         return res.download(fullPath);
       } catch {
@@ -155,6 +168,40 @@ function readFb2ZipFile(format: string | null, fb2ZipPath: string, res: express.
   });
 }
 
+
+async function epubToXteinkEpub(format: string | null, inputFile: string, res: express.Response) {
+    const outputFile = inputFile.replace(/\.epub$/, format ? `.${format}.epub` : '.cleaned.epub');
+
+    if (format) {
+      const cleanedPath = inputFile.replace(/\.epub$/, `.${format}.epub`);
+      try {
+        await fs.access(cleanedPath);
+        console.log(`Serving cached cleaned EPUB: ${cleanedPath}`);
+        return res.download(cleanedPath);
+      } catch {
+        console.log(`Cleaning EPUB for Xteink format ${format}: ${inputFile}`);
+        
+        const cleaner = new ePubXteinkCleaner(format);
+        cleaner.cleanEpub(inputFile, outputFile)
+        .then(() => {
+            console.log(`ePub cleaned and saved as ${outputFile}`);
+            // serve original file while cleaning is in progress
+            return res.download(outputFile);
+        }).catch(err => {
+            console.error('Error cleaning ePub:', err);
+            return res.status(500).json({ error: 'Failed to clean ePub for Xteink' });
+        });
+        
+      }
+    } else {
+      // no format specified, just serve original file
+      return res.download(inputFile);
+    }
+  }
+    
+    
+
+
 function saveAndRespond(epubBuffer: Buffer, savePath: string, res: express.Response) {
   // Save converted EPUB for future use
   fs.mkdir(path.dirname(savePath), { recursive: true })
@@ -174,7 +221,7 @@ function saveAndRespond(epubBuffer: Buffer, savePath: string, res: express.Respo
 // app.use('/files', express.static(BASE_DIR, { index: false }));
 
 app.use('/opds', async (req, res) => {
-  await getOpdsFeed(req, res);
+  await getOpdsFeed(req, res, '');
 });
 
 app.use('/x4opds', async (req, res) => {
@@ -185,25 +232,110 @@ app.use('/x3opds', async (req, res) => {
   await getOpdsFeed(req, res, 'x3');
 });
 
-async function getOpdsFeed(req: express.Request, res: express.Response, format: 'x4' | 'x3' | '' = '') {
+async function getOpdsFeed(
+  req: express.Request, 
+  res: express.Response, 
+  format: 'x4' | 'x3' | '' = '') {
   const urlPath = req.path.replace(/^\//, '');
+  console.log(`Received OPDS request for path: ${urlPath}, format: ${format}`);
   try {
     const relPath = decodeURIComponent(urlPath || '');
     const page = req.query.page ? parseInt(req.query.page as string, 10) : 1;
-    const perPage = req.query.per_page ? parseInt(req.query.per_page as string, 10) : 18;
-    const xml = await buildFeed(BASE_DIR, `${req.protocol}://${req.get('host')}`, relPath, page, perPage, format);
-    res.set('Content-Type', 'application/atom+xml; charset=utf-8');
-    res.send(xml);
+    const perPage = req.query.per_page ? parseInt(req.query.per_page as string, 10) : 5;
+
+    const firstSegment = urlPath.split('/')[0];
+    switch (firstSegment) {
+      case 'title':
+        getTitleFeed(relPath, page, perPage, format, req, res);
+        return;
+      case 'author':
+        getAuthorFeed(relPath, page, perPage, format, req, res);
+        return;
+      // case 'language':
+      //   getLanguageFeed(relPath, page, perPage, format, req, res);
+      //   return;
+      case 'folder': 
+        getFolderFeed(relPath, page, perPage, format, req, res);
+        return;
+      default:
+        getMainFeed(relPath, format, req, res);
+        return;
+    }
   } catch (err: any) {
     console.error(err);
     res.status(500).json({ error: String(err) });
   }
 }
 
+async function getMainFeed(
+  relPath: string, 
+  format: 'x4' | 'x3' | '' = '', 
+  req: express.Request, 
+  res: express.Response) {
+  const xml = await buildMainFeed(
+        BASE_DIR, 
+        `${req.protocol}://${req.get('host')}`, 
+        relPath, 
+        format);
+  res.set('Content-Type', 'application/atom+xml; charset=utf-8');
+  res.send(xml);
+}
 
-// app.get('/', (_req, res) => {
-//   res.redirect('/opds');
-// });
+async function getFolderFeed(
+  relPath: string, 
+  page: number, 
+  perPage: number, 
+  format: 'x4' | 'x3' | '' = '', 
+  req: express.Request, 
+  res: express.Response) {
+  const xml = await buildFolderFeed(
+        BASE_DIR, 
+        `${req.protocol}://${req.get('host')}`, 
+        relPath, 
+        page, 
+        perPage, 
+        format);
+  res.set('Content-Type', 'application/atom+xml; charset=utf-8');
+  res.send(xml);
+}
+
+async function getTitleFeed(
+  relPath: string, 
+  page: number, 
+  perPage: number, 
+  format: 'x4' | 'x3' | '' = '', 
+  req: express.Request, 
+  res: express.Response) {
+  const xml = await buildTitleFeed(
+        app.locals.indexer,
+        BASE_DIR, 
+        `${req.protocol}://${req.get('host')}`, 
+        relPath, 
+        page, 
+        perPage, 
+        format);
+  res.set('Content-Type', 'application/atom+xml; charset=utf-8');
+  res.send(xml);
+}
+
+async function getAuthorFeed(
+  relPath: string, 
+  page: number, 
+  perPage: number, 
+  format: 'x4' | 'x3' | '' = '', 
+  req: express.Request, 
+  res: express.Response) {
+  const xml = await buildAuthorFeed(
+        app.locals.indexer,
+        BASE_DIR, 
+        `${req.protocol}://${req.get('host')}`, 
+        relPath, 
+        page, 
+        perPage, 
+        format);
+  res.set('Content-Type', 'application/atom+xml; charset=utf-8');
+  res.send(xml);
+}
 
 
 /*
@@ -249,6 +381,21 @@ app.post("/fetch", async (req, res) => {
   }
 });
 
+app.get("/rescan", async (req, res) => {
+  app.locals.indexer.scanDirectory(BASE_DIR)
+    .then(() => console.log('Indexing completed'))
+    .catch((err: any) => console.error('Indexing error', err));
+  res.json({ status: "rescan started" });
+});
+
+app.get("/status", async (req, res) => {
+  if (app.locals.indexer.isScaning) {
+    res.json({ status: "scanning", count: app.locals.indexer.countBooks });
+  } else {
+    res.json({ status: "ready", count: app.locals.indexer.countBooks });
+  }
+});
+
 
 async function ensureBaseDir() {
   try {
@@ -261,11 +408,33 @@ async function ensureBaseDir() {
 
 ensureBaseDir()
   .then(() => {
+    // ensure cache dir exists and initialize indexer
+    return fs.mkdir(CACHE_DIR, { recursive: true });
+  }).then(() => {
+    const dbPath = path.join(CACHE_DIR, 'books.db');
+    try {
+      const indexer = new Indexer(dbPath);
+      // store indexer on app so routes can use it
+      app.locals.indexer = indexer;
+      // perform an initial scan in background only if DB is empty
+      
+      if (indexer.countBooks === 0) {
+        indexer.scanDirectory(BASE_DIR)
+          .then(() => console.log('Indexing completed'))
+          .catch(err => console.error('Indexing error', err));
+      } else {
+        console.log(`Found ${indexer.countBooks} books in database. Skipping initial scan.\n`)
+      }
+    } catch (err) {
+      console.error('Failed to initialize indexer', err);
+    }
     app.listen(PORT, () => {
       console.log(`Base directory: ${BASE_DIR}`);
       console.log(`Local OPDS server listening on http://localhost:${PORT}/opds`);
       console.log(`Local OPDS server for Xteink X4 listening on http://localhost:${PORT}/x4opds`);
       console.log(`Local OPDS server for Xteink X3listening on http://localhost:${PORT}/x3opds`);
+      console.log(`Rescan endpoint: http://localhost:${PORT}/rescan`);
+      console.log(`Status endpoint: http://localhost:${PORT}/status`);
       // console.log(`Serving files from ${BASE_DIR} at /files/`);
     });
   }).catch(err => {

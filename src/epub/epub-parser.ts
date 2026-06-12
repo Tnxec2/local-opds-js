@@ -1,7 +1,8 @@
 import JSZip, { JSZipObject } from "jszip";
 
 import fs from "fs/promises";
-import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
+import { DOMParser } from "@xmldom/xmldom";
+import mime from "mime";
 
 /**
  * A class to parse ePub files using JSZip.
@@ -101,11 +102,32 @@ export class ePubParser {
   async getFilesByExtension(extension: string, type: any) {
     if (!this.loadedFile) return [];
 
+    const lower = extension.toLowerCase();
+
     const files = Object.values(this.loadedFile.files).filter(
-      (file) => !file.dir && file.name.endsWith(extension)
+      (file) => !file.dir && file.name.toLowerCase().endsWith(lower)
     );
 
     const filesPromises = files.map((file) => file.async(type));
+    const filesResolves = await Promise.all(filesPromises);
+
+    return filesResolves;
+  }
+
+  async getImages() {
+    if (!this.loadedFile) return [];
+    
+    const filesPromises = Object.values(this.loadedFile.files).map(async (file) => {
+      if (file.dir) return null;
+
+      const type = mime.getType(file.name);
+      
+      if (type && type.startsWith("image/")) {
+        return file;
+      }
+
+      return null;
+    });
     const filesResolves = await Promise.all(filesPromises);
 
     return filesResolves;
@@ -189,12 +211,12 @@ export class ePubParser {
     const xmlDoc = await this.fetchContentFile();
     const metadataElement = xmlDoc?.getElementsByTagName("metadata")[0];
 
-    const title = metadataElement?.getElementsByTagName("dc:title")[0].textContent;
-    const author = metadataElement?.getElementsByTagName("dc:creator")[0]?.textContent;
-    const series = metadataElement?.getElementsByTagName("dc:series")[0]?.textContent;
-    const language = metadataElement?.getElementsByTagName("dc:language")[0]?.textContent;
-    const publisher = metadataElement?.getElementsByTagName("dc:publisher")[0]?.textContent;
-    const description = metadataElement?.getElementsByTagName("dc:description")[0]?.textContent;
+    const title = (metadataElement?.getElementsByTagName("dc:title")[0] || metadataElement?.getElementsByTagName("dcns:title")[0])?.textContent;
+    const author = (metadataElement?.getElementsByTagName("dc:creator")[0] || metadataElement?.getElementsByTagName("dcns:creator")[0])?.textContent;
+    const series = (metadataElement?.getElementsByTagName("dc:series")[0] || metadataElement?.getElementsByTagName("dcns:series")[0])?.textContent;
+    const language = (metadataElement?.getElementsByTagName("dc:language")[0] || metadataElement?.getElementsByTagName("dcns:language")[0])?.textContent;
+    const publisher = (metadataElement?.getElementsByTagName("dc:publisher")[0] || metadataElement?.getElementsByTagName("dcns:publisher")[0])?.textContent;
+    const description = (metadataElement?.getElementsByTagName("dc:description")[0] || metadataElement?.getElementsByTagName("dcns:description")[0])?.textContent;
 
     const data = { title, publisher, author, series, language, description };
     

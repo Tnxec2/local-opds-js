@@ -1,6 +1,7 @@
 {
   "name": "local-opds",
   "version": "1.0.0",
+  "type": "module",
   "scripts": {
     "prebuild": "rm -rf dist",
     "build": "tsc -p tsconfig.json; cp -r reader/public dist/",
@@ -20,17 +21,22 @@
     "url": "https://github.com/Tnxec2/local-opds-js"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.6",
     "@types/jszip": "^3.4.1",
     "@types/node": "^25.9.1",
+    "@types/node-fetch": "^2.6.13",
+    "@types/xml2js": "^0.4.14",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3"
   },
   "dependencies": {
     "@xmldom/xmldom": "^0.9.10",
+    "better-sqlite3": "^8.1.0",
     "canvas": "^3.2.3",
     "express": "^5.2.1",
     "jszip": "^3.10.1",
+    "mime": "^4.1.0",
     "node-fetch": "^2.7.0",
     "xml2js": "^0.6.2",
     "xmlbuilder2": "^4.0.3"

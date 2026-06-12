@@ -1,42 +1,19 @@
 import JSZip from "jszip";
 import { DOMParser, Element, Node } from "@xmldom/xmldom";
-import { loadImage, createCanvas, CanvasRenderingContext2D } from 'canvas';
+import { loadImage } from 'canvas';
 
-type ManifestItem = { id: string; href: string; mediaType: string; properties?: string }
-type SpineItemref = { idref: string }
+import {EPUB, SpineItemref, ManifestItem } from "./epub.js";
+import { ImageConverter } from "./image.js";
+import { getXteinkConfig, Xteink } from "./xteink.js";
 
-const CSS = `
-@charset "UTF-8";
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", "Liberation Sans", Arial, "Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji"; line-height: 1.6; padding: 1rem; }
-h1,h2,h3 { line-height: 1.25; }
-h1 { font-size: 1.6rem; margin: 1rem 0 .5rem; }
-h2 { font-size: 1.4rem; margin: 1rem 0 .5rem; }
-h3 { font-size: 1.2rem; margin: .8rem 0 .4rem; }
-p { margin: .6rem 0; }
-blockquote { margin: .8rem 1rem; padding-left: .8rem; border-left: 3px solid #ccc; }
-.poem { margin: .8rem 0; }
-.stanza { margin: .6rem 0; }
-img { max-width: 100%; height: auto; }
-hr { border: 0; border-top: 1px solid #ddd; margin: 1rem 0; }
-    `.trim();
 
-const META_INF = `<?xml version="1.0" encoding="UTF-8"?>
-<container version="1.0"
-xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
-<rootfiles>
-<rootfile full-path="OEBPS/content.opf"
-    media-type="application/oebps-package+xml"/>
-</rootfiles>
-</container>`
 
 
 export class FB2ToEPUBConverter {
 
     dom = new DOMParser();
 
-    enableGrayscale = false; // option to disable grayscale conversion for better image quality (some readers have issues with color images from FB2, but can be disabled if desired)
-    coverWidth: number | undefined;
-    coverHeight: number | undefined;
+    xteinkConfig: Xteink | null = null;
 
     fb2Content: string | null = null;
 
@@ -68,21 +45,8 @@ export class FB2ToEPUBConverter {
 
     constructor(format: string | null = null) {
         console.log('FB2ToEPUBConverter initialized with format', format);
-        switch (format) {
-            case 'x4':
-                this.coverWidth = 480;
-                this.coverHeight = 800;
-                this.enableGrayscale = true;
-                break;
-            case 'x3':
-                this.coverWidth = 528;
-                this.coverHeight = 792;
-                this.enableGrayscale = true;
-                break;
-            default:
-                break;
-        }
-     }
+        this.xteinkConfig = getXteinkConfig(format);
+    }
 
     async readFB2WithDeclaredEncoding(buf: Buffer<ArrayBuffer>): Promise<string> {
 
@@ -341,14 +305,12 @@ export class FB2ToEPUBConverter {
             // META-INF/container.xml
             zip?.folder("META-INF")?.file(
                 "container.xml",
-                META_INF,
+                EPUB.META_INF,
             );
-
-            this.updateProgress(45);
 
             const oebps = zip.folder("OEBPS");
 
-            oebps?.file("styles.css", CSS);
+            oebps?.file("styles.css", EPUB.CSS);
 
             // Write chapter files
             const lang = (this.bookMetadata.language || "en").toLowerCase();
@@ -360,6 +322,9 @@ export class FB2ToEPUBConverter {
                 },
             ];
             const spineItemrefs: SpineItemref[] = [];
+
+
+            this.updateProgress(45);
 
             const chapterFileNames = chapters.map((ch, idx) => `chapter-${idx + 1}.xhtml`)
 
@@ -383,7 +348,7 @@ export class FB2ToEPUBConverter {
                     }
                 }
 
-                const xhtml = wrapAsXHTML(ch.title, content, lang);
+                const xhtml = EPUB.wrapAsXHTML(ch.title, content, lang);
 
                 oebps?.file(filename, xhtml);
                 manifestItems.push({
@@ -445,41 +410,18 @@ export class FB2ToEPUBConverter {
                 try {
                     const img = await loadImage(`data:${bin.mime};base64,${bin.base64}`);
                     
-                    const maxWidth = this.coverWidth ? this.coverWidth : img.width;
-                    const maxHeight = this.coverHeight ? this.coverHeight : img.height
-                    
-                    let scale = Math.min(maxWidth / img.width, maxHeight / img.height, 1);
-
-                    const width = Math.round(img.width * scale);
-                    const height = Math.round(img.height * scale);
-
-                    const canvas = createCanvas(width, height);
-                    const ctx = canvas.getContext('2d');
-                    if (ctx) {
-                        ctx.fillStyle = '#fff'; // fill with white background to avoid black bg in some readers for transparent images
-                        ctx.fillRect(0, 0, width, height);
-                        ctx.drawImage(img, 0, 0, width, height);
-                        if (this.enableGrayscale) {
-                            applyGrayscale(ctx, width, height);
+                    ImageConverter.convertImage(img, this.xteinkConfig?.coverWidth, this.xteinkConfig?.coverHeight, this.xteinkConfig?.enableGrayscale).then(
+                        ({ fileExt, jpgBuffer }) => {
+                            imagesFolder?.file(`${id}.${fileExt}`, jpgBuffer);
+                            manifestItems.push({
+                                id: `img_${id}`,
+                                href: `images/${id}.${fileExt}`,
+                                mediaType: 'image/jpeg',
+                            });
                         }
-                        const jpgBuffer = canvas.toBuffer('image/jpeg', { quality: 0.75, progressive: true });
-                        
-                        imagesFolder?.file(`${id}.jpg`, jpgBuffer);
-                        manifestItems.push({
-                            id: `img_${id}`,
-                            href: `images/${id}.jpg`,
-                            mediaType: 'image/jpeg',
-                        });
-                        continue;
-                    } else {
-                        console.warn('Failed to get canvas context, saving original image', id);
-                        imagesFolder?.file(`${id}.${ext}`, arrayBuf);
-                        manifestItems.push({
-                            id: `img_${id}`,
-                            href: `images/${id}.${ext}`,
-                            mediaType: bin.mime,
-                        });
-                    }
+                    ).catch(err => {
+                        throw err;
+                    });                    
                 } catch (err) {
                     console.warn('Failed to convert image to JPEG, saving original', id, err);
                     imagesFolder?.file(`${id}.${ext}`, arrayBuf);
@@ -494,7 +436,7 @@ export class FB2ToEPUBConverter {
             this.updateProgress(72);
 
             // nav.xhtml (EPUB 3)
-            const navXhtml = buildNavXHTML(
+            const navXhtml = EPUB.buildNavXHTML(
                 this.bookMetadata.title || "Untitled",
                 chapters,
                 lang,
@@ -511,7 +453,7 @@ export class FB2ToEPUBConverter {
             const uniqueId = "urn:uuid:" + generateUUIDv4();
 
             
-            const contentOpf = buildContentOpf({
+            const contentOpf = EPUB.buildContentOpf({
                 id: uniqueId,
                 title: this.bookMetadata.title || "Untitled",
                 author: this.bookMetadata.author || "Unknown Author",
@@ -586,20 +528,7 @@ export class FB2ToEPUBConverter {
 
 }
 
-function applyGrayscale(ctx: CanvasRenderingContext2D, width: number, height: number) {
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    // Alpha-blend against white background before grayscaling (handles transparent PNGs)
-    const a = data[i + 3] / 255;
-    const blendedR = data[i] * a + 255 * (1 - a);
-    const blendedG = data[i + 1] * a + 255 * (1 - a);
-    const blendedB = data[i + 2] * a + 255 * (1 - a);
-    const gray = Math.round(blendedR * 0.299 + blendedG * 0.587 + blendedB * 0.114);
-    data[i] = gray; data[i + 1] = gray; data[i + 2] = gray; data[i + 3] = 255;
-  }
-  ctx.putImageData(imageData, 0, 0);
-}
+
 
 
 function textContentDeep(node: Node): string {
@@ -789,89 +718,4 @@ function serializeSectionToXHTML(section: Element, binaries: any): string {
         }
     }
     return html || "<p></p>";
-}
-
-function wrapAsXHTML(title: string, bodyContent: string, lang: string): string {
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="${escapeXML(lang)}" lang="${escapeXML(lang)}">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeXML(title)}</title>
-<link rel="stylesheet" type="text/css" href="styles.css" />
-</head>
-<body>
-<h1>${escapeXML(title)}</h1>
-${bodyContent}
-</body>
-</html>`;
-}
-
-function buildNavXHTML(bookTitle: string, chapters: any[], lang: string): string {
-    const lis = chapters
-        .map(
-            (ch, i) =>
-                `<li><a href="chapter-${i + 1}.xhtml">${escapeXML(ch.title)}</a></li>`,
-        )
-        .join("\n");
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${escapeXML(lang)}" lang="${escapeXML(lang)}">
-<head>
-<meta charset="UTF-8" />
-<title>Table of Contents</title>
-<link rel="stylesheet" type="text/css" href="styles.css" />
-</head>
-<body>
-<nav epub:type="toc" id="toc">
-<h2>${escapeXML(bookTitle)}</h2>
-<ol>
-${lis}
-</ol>
-</nav>
-</body>
-</html>`;
-}
-
-function buildContentOpf(opf: {
-    id: string,
-    title: string,
-    author: string,
-    lang: string,
-    date: string,
-    coverId?: string,
-    manifestItems: ManifestItem[],
-    spineItemrefs: SpineItemref[],
-}) {
-    const manifestXml = opf.manifestItems
-        .map((it) => {
-            const props = it.properties
-                ? ` properties="${it.properties}"`
-                : "";
-            return `\t<item id="${escapeXML(it.id)}" href="${escapeXML(it.href)}" media-type="${escapeXML(it.mediaType)}"${props} />`;
-        })
-        .join("\n");
-    const spineXml = opf.spineItemrefs
-        .map((sr) => `\t<itemref idref="${escapeXML(sr.idref)}" />`)
-        .join("\n");
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="pub-id" version="3.0" xml:lang="${escapeXML(opf.lang)}">
-<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-${opf.coverId ? `<meta name="cover" content="cover"/>` : ""}
-<dc:identifier id="pub-id">${escapeXML(opf.id)}</dc:identifier>
-<dc:title>${escapeXML(opf.title)}</dc:title>
-<dc:language>${escapeXML(opf.lang)}</dc:language>
-<dc:creator>${escapeXML(opf.author)}</dc:creator>
-<dc:date>${escapeXML(opf.date)}</dc:date>
-<meta property="dcterms:modified">${new Date().toISOString().replace(/\.\d+Z$/, "Z")}</meta>
-</metadata>
-<manifest>
-${opf.coverId ? `\t<item href="images/${escapeXML(opf.coverId)}" id="cover" media-type="image/jpeg"/>` : ""}
-${manifestXml}
-</manifest>
-<spine>
-${spineXml}
-</spine>
-</package>`;
 }
