@@ -264,6 +264,59 @@ export class Indexer {
   getByRelpath(relpath: string) {
     return this.db.prepare(`SELECT * FROM books WHERE relpath = ?`).get(relpath) as BookRecord | undefined;
   }
+
+  getAuthorsFirstLetters(): { letter: string }[] {
+    return this.db
+      .prepare<unknown[], { letter: string }>('SELECT DISTINCT SUBSTR(author, 1, 1) AS letter FROM books WHERE author IS NOT NULL ORDER BY letter')
+      .all();
+  }
+
+  getAuthors(firstLetter: string, page: number, perPage: number): { count: number, authors: string[]}  {
+    const count = this.db.prepare<string, {count: number}>('SELECT COUNT(*) as count FROM books WHERE author LIKE ?')
+        .get(firstLetter + '%')
+    const authors = this.db.prepare<string[], { author: string }>('SELECT DISTINCT author FROM books WHERE author LIKE ? ORDER BY author LIMIT ? OFFSET ?')
+            .all(firstLetter + '%', perPage.toString(), ((page - 1) * perPage).toString())
+    return { count: count?.count || 0, authors: authors.map(a => a.author)}
+  }
+
+  getBooksByAuthor(author: string, page: number, perPage: number) {
+    const booksCount = this.db
+      .prepare<string, {count: number}>('SELECT COUNT(*) as count FROM books WHERE author = ?')
+      .get(author);
+
+    const books: BookRecord[] = this.db
+      .prepare<string[], BookRecord>('SELECT * FROM books WHERE author = ? ORDER BY title LIMIT ? OFFSET ?')
+      .all(author, perPage.toString(), ((page - 1) * perPage).toString());
+    return {
+      count: booksCount?.count || 0,
+      books: books
+    }
+  }
+
+  getTitleFirstLetters() {
+    return this.db
+      .prepare<unknown[], { letter: string }>('SELECT DISTINCT SUBSTR(title, 1, 1) AS letter FROM books WHERE title IS NOT NULL ORDER BY letter')
+      .all();
+  }
+
+  getTitleThreeLetters(firstLetter: string) {
+    return this.db
+        .prepare<unknown[], { letter: string }>('SELECT DISTINCT SUBSTR(title, 1, 3) AS letter FROM books WHERE title LIKE ? ORDER BY letter')
+        .all(firstLetter + '%');
+  }
+
+  getBooksByTitle(firstLetter: string, page: number, perPage: number) {
+    const booksCount = this.db
+      .prepare<string, {count: number}>('SELECT COUNT(*) as count FROM books WHERE title LIKE ?')
+      .get(firstLetter + '%');
+
+    const books: BookRecord[] = this.db
+      .prepare<string[], BookRecord>('SELECT * FROM books WHERE title LIKE ? ORDER BY title LIMIT ? OFFSET ?')
+      .all(firstLetter + '%', perPage.toString(), ((page - 1) * perPage).toString());
+    return {
+      count: booksCount?.count || 0, books: books
+    }
+  }
 }
 
 export default Indexer;

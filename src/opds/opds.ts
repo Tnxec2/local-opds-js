@@ -152,9 +152,7 @@ async function buildAuthorFeed(
   console.log(`Building author feed for perPage: ${perPage}, page: ${page}, format: ${format}, path: ${relPath}`)
 
   if (pathSegments.length === 0) {
-    const authorsFirstLetters: { letter: string }[] = indexer.db
-      .prepare<unknown[], { letter: string }>('SELECT DISTINCT SUBSTR(author, 1, 1) AS letter FROM books WHERE author IS NOT NULL ORDER BY letter')
-      .all();
+    const authorsFirstLetters = indexer.getAuthorsFirstLetters();      
 
     const feed = create({ version: '1.0', encoding: 'utf-8' }).ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
     feed.ele('title').txt(`Local OPDS (Authors): Root`);
@@ -171,43 +169,32 @@ async function buildAuthorFeed(
     return feed.end({ prettyPrint: true });
   } else if (pathSegments.length === 1 && pathSegments[0].length === 1) {
     const firstLetter = pathSegments[0];
-    const authorsCount = indexer.db
-      .prepare<string, {count: number}>('SELECT COUNT(*) as count FROM books WHERE author LIKE ?')
-      .get(firstLetter + '%');
-    const authors: { author: string }[] = indexer.db
-      .prepare<string[], { author: string }>('SELECT DISTINCT author FROM books WHERE author LIKE ? ORDER BY author LIMIT ? OFFSET ?')
-      .all(firstLetter + '%', perPage.toString(), ((page - 1) * perPage).toString())
+    const authors = indexer.getAuthors(firstLetter, page, perPage); 
     
     const feed = create({ version: '1.0', encoding: 'utf-8' }).ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
-    feed.ele('title').txt(`Local OPDS (Authors): ${firstLetter} ${page && (authorsCount?.count || 0) / perPage > 1 ? ` (Page ${page})` : ''}`);
+    feed.ele('title').txt(`Local OPDS (Authors): ${firstLetter} ${page && (authors.count) / perPage > 1 ? ` (Page ${page})` : ''}`);
     feed.ele('id').txt(feedIdForPath(relPath));
     feed.ele('updated').txt(new Date().toISOString());
 
     const selfHref = `${baseUrl.replace(/\/$/, '')}/${format}opds/author/${encodeURIComponent(firstLetter)}?page=${page}&per_page=${perPage}`;
     addFeedLink(feed, selfHref, 'self');
 
-    authors.forEach((a: { author: string }) => {
-      addEntry(feed, baseUrl, relPath, format, 'author', a.author);
+    authors.authors.forEach((a) => {
+      addEntry(feed, baseUrl, relPath, format, 'author', a);
     });
 
     const _path = `${baseUrl.replace(/\/$/, '')}/${format}opds/author/${encodeURIComponent(firstLetter)}`;
-    addPagination(feed, _path, page, perPage, authorsCount?.count || 0);
+    addPagination(feed, _path, page, perPage, authors.count);
 
     return feed.end({ prettyPrint: true });
   } else {
     const author = pathSegments[0];
-
-    const booksCount = indexer.db
-      .prepare<string, {count: number}>('SELECT COUNT(*) as count FROM books WHERE author = ?')
-      .get(author);
-
-    const books: BookRecord[] = indexer.db
-      .prepare<string[], BookRecord>('SELECT * FROM books WHERE author = ? ORDER BY title LIMIT ? OFFSET ?')
-      .all(author, perPage.toString(), ((page - 1) * perPage).toString());
+    const books = indexer.getBooksByAuthor(author, page, perPage);
+    
 
     const feed = create({ version: '1.0', encoding: 'utf-8' })
       .ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
-    feed.ele('title').txt(`Local OPDS (Authors): ${author} ${page && (booksCount?.count || 0) / perPage > 1 ? ` (Page ${page})` : ''}`);
+    feed.ele('title').txt(`Local OPDS (Authors): ${author} ${page && books.count / perPage > 1 ? ` (Page ${page})` : ''}`);
     feed.ele('id').txt(feedIdForPath(relPath));
     feed.ele('updated').txt(new Date().toISOString());
 
@@ -217,13 +204,12 @@ async function buildAuthorFeed(
     const upHref = `${baseUrl.replace(/\/$/, '')}/${format}opds/author`;
     addFeedLink(feed, upHref, 'up');
 
-    books
-    .forEach((b: BookRecord) => {
+    books.books.forEach((b: BookRecord) => {
       addFileEntry(feed, baseUrl, relPath, format, b);
     });
 
     const _path = `${baseUrl.replace(/\/$/, '')}/${format}opds/author/${encodeURIComponent(author)}`;
-    addPagination(feed, _path, page, perPage, booksCount?.count || 0);
+    addPagination(feed, _path, page, perPage, books.count);
 
     return feed.end({ prettyPrint: true });
   }
@@ -248,9 +234,7 @@ async function buildTitleFeed(
   const pathToList = path.join(baseDir, ...pathSegments);
 
   if (pathSegments.length === 0) {
-    const titleFirstletters: { letter: string }[] = indexer.db
-      .prepare<unknown[], { letter: string }>('SELECT DISTINCT SUBSTR(title, 1, 1) AS letter FROM books WHERE title IS NOT NULL ORDER BY letter')
-      .all();
+    const titleFirstletters: { letter: string }[] = indexer.getTitleFirstLetters();      
 
     const feed = create({ version: '1.0', encoding: 'utf-8' })
       .ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
@@ -268,9 +252,8 @@ async function buildTitleFeed(
     return feed.end({ prettyPrint: true });
   } else if (pathSegments.length === 1 && pathSegments[0].length === 1) {
     const firstLetter = pathSegments[0];
-    const titleThreeletters: { letter: string }[] = indexer.db
-      .prepare<unknown[], { letter: string }>('SELECT DISTINCT SUBSTR(title, 1, 3) AS letter FROM books WHERE title LIKE ? ORDER BY letter')
-      .all(firstLetter + '%');
+    const titleThreeletters: { letter: string }[] = indexer.getTitleThreeLetters(firstLetter);
+      
     const feed = create({ version: '1.0', encoding: 'utf-8' })
       .ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
     feed.ele('title').txt(`Local OPDS (Titles): Root`);
@@ -290,17 +273,10 @@ async function buildTitleFeed(
     return feed.end({ prettyPrint: true });
   } else {
     const firstLetter = pathSegments[0];
-
-    const booksCount = indexer.db
-      .prepare<string, {count: number}>('SELECT COUNT(*) as count FROM books WHERE title LIKE ?')
-      .get(firstLetter + '%');
-
-    const books: BookRecord[] = indexer.db
-      .prepare<string[], BookRecord>('SELECT * FROM books WHERE title LIKE ? ORDER BY title LIMIT ? OFFSET ?')
-      .all(firstLetter + '%', perPage.toString(), ((page - 1) * perPage).toString());
-
+    const books = indexer.getBooksByTitle(firstLetter, page, perPage);
+    
     const feed = create({ version: '1.0', encoding: 'utf-8' }).ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
-    feed.ele('title').txt(`Local OPDS (Titles): ${firstLetter} ${page && (booksCount?.count || 0) / perPage > 1 ? ` (Page ${page})` : ''}`);
+    feed.ele('title').txt(`Local OPDS (Titles): ${firstLetter} ${page && books.count / perPage > 1 ? ` (Page ${page})` : ''}`);
     feed.ele('id').txt(feedIdForPath(relPath));
     feed.ele('updated').txt(new Date().toISOString());
 
@@ -310,12 +286,12 @@ async function buildTitleFeed(
     const upHref = `${baseUrl.replace(/\/$/, '')}/${format}opds/title/${encodeURIComponent(firstLetter).slice(0,1)}`;
     addFeedLink(feed, upHref, 'up');
 
-    books.forEach((b: BookRecord) => {
+    books.books.forEach((b: BookRecord) => {
       addFileEntry(feed, baseUrl, relPath, format, b);
     });
 
     const _path = `${baseUrl.replace(/\/$/, '')}/${format}opds/title/${encodeURIComponent(firstLetter)}`;
-    addPagination(feed, _path, page, perPage, booksCount?.count || 0);
+    addPagination(feed, _path, page, perPage, books.count);
 
     return feed.end({ prettyPrint: true });
   }
