@@ -204,9 +204,9 @@ async function epubToXteinkEpub(format: string | null, inputFile: string, res: e
 
 function saveAndRespond(epubBuffer: Buffer, savePath: string, res: express.Response) {
   // Save converted EPUB for future use
-  fs.mkdir(path.dirname(savePath), { recursive: true })
-    .then(() => fs.writeFile(savePath, Buffer.from(epubBuffer)))
-    .catch((err) => console.error('Failed to save converted EPUB', err));
+  // fs.mkdir(path.dirname(savePath), { recursive: true })
+  //   .then(() => fs.writeFile(savePath, Buffer.from(epubBuffer)))
+  //   .catch((err) => console.error('Failed to save converted EPUB', err));
 
   // Serve the converted EPUB
   const filename = encodeURIComponent(path.basename(savePath));
@@ -411,33 +411,34 @@ ensureBaseDir()
     // ensure cache dir exists and initialize indexer
     return fs.mkdir(CACHE_DIR, { recursive: true });
   }).then(() => {
+
     const dbPath = path.join(CACHE_DIR, 'books.db');
     try {
-      const indexer = new Indexer(dbPath);
+      const indexer = new Indexer(dbPath, BASE_DIR);
       // store indexer on app so routes can use it
       app.locals.indexer = indexer;
-      // perform an initial scan in background only if DB is empty
-      
-      if (indexer.countBooks === 0) {
-        indexer.scanDirectory(BASE_DIR)
-          .then(() => console.log('Indexing completed'))
-          .catch(err => console.error('Indexing error', err));
-      } else {
-        console.log(`Found ${indexer.countBooks} books in database. Skipping initial scan.\n`)
-      }
     } catch (err) {
       console.error('Failed to initialize indexer', err);
     }
     app.listen(PORT, () => {
+      console.log("------------------------------------------------------------------------------");
       console.log(`Base directory: ${BASE_DIR}`);
       console.log(`Local OPDS server listening on http://localhost:${PORT}/opds`);
       console.log(`Local OPDS server for Xteink X4 listening on http://localhost:${PORT}/x4opds`);
       console.log(`Local OPDS server for Xteink X3listening on http://localhost:${PORT}/x3opds`);
       console.log(`Rescan endpoint: http://localhost:${PORT}/rescan`);
       console.log(`Status endpoint: http://localhost:${PORT}/status`);
+      console.log("------------------------------------------------------------------------------");
       // console.log(`Serving files from ${BASE_DIR} at /files/`);
     });
   }).catch(err => {
   console.error('Failed to prepare base directory', err);
   process.exit(1);
 });
+
+
+
+// TODO: es soll convertierung ins X4 und X3 korrigiert werden:
+// - es gibt noch ungereimheiten beim konvertieren von epub to xteink-epub
+// - in feed nur fb2 und epub anzeigen, bei X4opds oder X3opds sollen "Convert" Links übergeben werden
+// - konvertierte files sollen nicht zwischengespeichert werden -> immer neu konvertieren und direkt ausgeben 
