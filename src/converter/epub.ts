@@ -48,7 +48,6 @@ function wrapAsXHTML(title: string, bodyContent: string, lang: string): string {
 <link rel="stylesheet" type="text/css" href="styles.css" />
 </head>
 <body>
-<h1>${escapeXML(title)}</h1>
 ${bodyContent}
 </body>
 </html>`;

@@ -7,8 +7,6 @@ import { ImageConverter } from "./image.js";
 import { getXteinkConfig, Xteink } from "./xteink.js";
 
 
-
-
 export class FB2ToEPUBConverter {
 
     dom = new DOMParser();
@@ -23,6 +21,7 @@ export class FB2ToEPUBConverter {
         language?: string;
         date?: string;
         coverId?: string;
+        annotation?: string;
     } = {};
     epubBlob: Blob | null = null;
 
@@ -134,10 +133,16 @@ export class FB2ToEPUBConverter {
                     const coverHref = getHref(imageElem);
                     if (coverHref) {
                         this.bookMetadata.coverId = coverHref.replace(/^#/, "") + '.jpg'; // we’ll save all images as jpg for max compatibility, so add .jpg extension here to match the filename during serialize
+                        console.log('coverID', this.bookMetadata.coverId);
                     }
                 }
             }
 
+            // Annotation
+            const annotationElem = titleInfo && titleInfo.getElementsByTagName("annotation")[0];
+            if (annotationElem) {
+                this.bookMetadata.annotation = serializeInline(annotationElem, {})
+            }
 
             // Date (optional)
             const dateElem =
@@ -244,6 +249,7 @@ export class FB2ToEPUBConverter {
                 const titleNode =
                     section.getElementsByTagName("title")[0] ||
                     section.getElementsByTagName("subtitle")[0];
+                
                 const chapTitle = titleNode
                     ? textContentDeep(titleNode).trim()
                     : `Chapter ${chapterIndex}`;
@@ -251,10 +257,11 @@ export class FB2ToEPUBConverter {
                     section,
                     binaries,
                 );
+                
                 chapters.push({
                     fb2Id: fb2Id,
                     id: `ch${chapterIndex}`,
-                    title: chapTitle || `Chapter ${chapterIndex}`,
+                    title: chapTitle,
                     content: htmlContent,
                 });
                 chapterIndex++;
@@ -262,6 +269,16 @@ export class FB2ToEPUBConverter {
 
             if (bodies.length) {
                 Array.from(bodies).forEach((body) => {
+                    const loseSection: Element = body.cloneNode(true) as Element;
+                    loseSection.setAttribute('id', 'body');
+
+                    Array.from(loseSection.children).forEach(child => {
+                        if (child.nodeName === 'section') {
+                            loseSection.removeChild(child);
+                        }
+                    });
+                    pushSectionAsChapter(loseSection);
+
                     const sections =
                         body.getElementsByTagName("section");
                     if (sections.length) {
@@ -293,6 +310,29 @@ export class FB2ToEPUBConverter {
                 );
 
             this.updateProgress(35);
+
+            
+            if (this.bookMetadata.annotation) {
+                chapters.unshift({
+                    fb2Id: null,
+                    id: 'annotation',
+                    title: 'Annotation',
+                    content: this.bookMetadata.annotation,
+                });
+            }
+            if (this.bookMetadata.coverId) {
+                chapters.unshift({
+                    fb2Id: null,
+                    id: 'cover',
+                    title: 'Cover',
+                    content: `<img alt="" src="images/img_${this.bookMetadata.coverId}" />`,
+                });
+            }
+
+            console.log('chapters')
+            chapters.forEach((ch, idx) => {
+                console.log(idx, ch.id, ch.fb2Id, ch.title);
+            })
 
             // Create EPUB structure using JSZip
             const zip = new JSZip();
@@ -389,7 +429,6 @@ export class FB2ToEPUBConverter {
                     );
 
             for (const name of imageKeys) {
-                
                 let id, ext;
                 if (name.includes(".")) {
                     id = name.substring(0, name.lastIndexOf("."));
@@ -400,28 +439,22 @@ export class FB2ToEPUBConverter {
                 }
                 ext = 'jpg'; // force jpg for all images to maximize compatibility (some readers choke on png/gif/svg in FB2)
 
-                //console.log('Processing image', name, id, ext);
-
                 let bin = binaries[id] || binaries[name];
+
                 if (!bin) continue;
                 const arrayBuf = base64ToUint8Array(bin.base64);
-                // console.log('write image', id, ext, 'size', this.formatFileSize(arrayBuf.byteLength), this.enableGrayscale);
+                // console.log('write image', id, ext, 'size', this.formatFileSize(arrayBuf.byteLength), this.xteinkConfig?.enableGrayscale);
 
                 try {
                     const img = await loadImage(`data:${bin.mime};base64,${bin.base64}`);
                     
-                    ImageConverter.convertImage(img, this.xteinkConfig?.coverWidth, this.xteinkConfig?.coverHeight, this.xteinkConfig?.enableGrayscale).then(
-                        ({ fileExt, jpgBuffer }) => {
-                            imagesFolder?.file(`${id}.${fileExt}`, jpgBuffer);
-                            manifestItems.push({
-                                id: `img_${id}`,
-                                href: `images/${id}.${fileExt}`,
-                                mediaType: 'image/jpeg',
-                            });
-                        }
-                    ).catch(err => {
-                        throw err;
-                    });                    
+                    const { fileExt, jpgBuffer } = await ImageConverter.convertImage(img, this.xteinkConfig?.coverWidth, this.xteinkConfig?.coverHeight, this.xteinkConfig?.enableGrayscale)
+                    imagesFolder?.file(`${id}.${fileExt}`, jpgBuffer);
+                    manifestItems.push({
+                        id: `img_${id}`,
+                        href: `images/${id}.${fileExt}`,
+                        mediaType: 'image/jpeg',
+                    });
                 } catch (err) {
                     console.warn('Failed to convert image to JPEG, saving original', id, err);
                     imagesFolder?.file(`${id}.${ext}`, arrayBuf);
@@ -532,11 +565,12 @@ export class FB2ToEPUBConverter {
 
 
 function textContentDeep(node: Node): string {
+    return node.textContent || '';
     // Get visible concatenated text (preserves Unicode)
-    if (node.nodeType === 3) return node.nodeValue || "";
-    let s = "";
-    (Array.isArray(node.childNodes) ? node.childNodes : []).forEach((n) => (s += textContentDeep(n)));
-    return s;
+    // if (node.nodeType === 3) return node.nodeValue || "";
+    // let s = "";
+    // (Array.isArray(node.childNodes) ? node.childNodes : []).forEach((n) => (s += textContentDeep(n)));
+    // return s;
 }
 
 function escapeXML(s: string) {
@@ -674,12 +708,12 @@ function serializeSectionToXHTML(section: Element, binaries: any): string {
         } else if (tag === "epigraph") {
             const inner = [...node.getElementsByTagName("p")]
                 .map((p) => serializeInline(p, binaries))
-                .join("");
+                .join("<br />");
             html += `<blockquote>${inner}</blockquote>`;
         } else if (tag === "cite") {
             const inner = [...node.children]
                 .map((n) => serializeInline(n, binaries))
-                .join("");
+                .join("<br />");
             html += `<blockquote>${inner}</blockquote>`;
         } else if (tag === "poem") {
             html += `<div class="poem">`;
