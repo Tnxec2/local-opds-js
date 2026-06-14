@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 
 import { XMLBuilder } from 'xmlbuilder2/lib/interfaces.js';
 import Indexer, { BookRecord } from '../indexer/indexer.js';
+import { Dirent } from 'fs';
 
 
 type SubsectionLink = {
@@ -95,42 +96,90 @@ function addEntry(feed: XMLBuilder, baseUrl: string, relPath: string, format: 'x
   entry.up();
 }
 
-function addFileEntry(feed: XMLBuilder, baseUrl: string, relPath: string, format: 'x4' | 'x3' | '', b: BookRecord) {
-  const href = `${baseUrl.replace(/\/$/, '')}/${format}files/${encodeURIComponent(b.relpath)}`;
+async function addFileEntry(feed: XMLBuilder, baseUrl: string, format: 'x4' | 'x3' | '', b: BookRecord) {
   const entry = feed.ele('entry');
-  entry.ele('id').txt(`${feedIdForPath(relPath)}:${b.id}`);
+  // remove filename from b.relpath
+  b.relpath = b.relpath.replace(b.filename, '').replace(/\/$/, '');
+
+  entry.ele('id').txt(`${feedIdForPath(b.relpath)}:${b.id}`);
   entry.ele('title').txt(b.title || b.filename);
   entry.ele('author').txt(b.author || 'unknown');
-  entry.ele('link', { rel: 'http://opds-spec.org/acquisition/open-access', href, type: b.ext }).up();
+  await addFileLink(entry, baseUrl, b.relpath, format, b.filename)
   entry.up();
 }
 
+async function addFileEntryFromFile(entry: XMLBuilder, baseUrl: string, relPath: string, format: 'x4' | 'x3' | '', e: Dirent<string>) {
+  // remove filename from b.relpath
+  const brelpath = relPath.replace(e.name, '').replace(/\/$/, '');
+  const fileStats = await fs.stat(path.join(e.parentPath, e.name));
+  entry.ele('title').txt(e.name || 'unknown');
+  entry.ele('content').txt(`file, size: ${fileStats.size} bytes`);
+  await addFileLink(entry, baseUrl, brelpath, format, e.name)
+  entry.up();
+}
+
+async function addFileLink(entry: XMLBuilder, baseUrl: string, relPath: string, format: 'x4' | 'x3' | '', fileName: string) {
+  if (format === 'x3' || format === 'x4') {
+    // on fb2 or fb2.zip files, add link for fb2.epub or fb2.zip.epub if this file not exists yet
+    if (fileName.toLowerCase().endsWith('.fb2') || fileName.toLowerCase().endsWith('.fb2.zip')) {
+      const epubSimpleName = fileName.toLowerCase().endsWith('.fb2') ? fileName.replace('.fb2', 'epub') : fileName.replace('.fb2.zip', 'epub');
+      try {
+        await fs.stat(path.join(baseUrl, relPath, epubSimpleName));
+      } catch (err) {
+        const epubConvertName = fileName + '.epub';
+        const basePath = `${baseUrl.replace(/\/$/, '')}/${format}convert/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}`
+        const convertHref = `${basePath}${encodeURIComponent(epubConvertName)}`;
+        entry.ele('link', {
+          title: 'Convert to Xteink ePub',
+          rel: 'http://opds-spec.org/acquisition/open-access',
+          href: convertHref,
+          type: 'application/epub+zip'
+        }).up();
+      }
+    } else if (fileName.toLowerCase().endsWith('.epub')) {
+      const basePath = `${baseUrl.replace(/\/$/, '')}/${format}convert/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}`
+      const convertHref = `${basePath}${encodeURIComponent(fileName)}`;
+      entry.ele('link', {
+        title: 'Convert to Xteink ePub',
+        rel: 'http://opds-spec.org/acquisition/open-access',
+        href: convertHref,
+        type: 'application/epub+zip'
+      }).up();
+    }
+  } else {
+    const type = getMimeType(fileName);
+    const basePath = `${baseUrl.replace(/\/$/, '')}/${format}files/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}`
+    const href = `${basePath}${encodeURIComponent(fileName)}`;
+    entry.ele('link', { rel: 'http://opds-spec.org/acquisition/open-access', href, type });
+  }
+}
+
 function addPagination(feed: XMLBuilder, path: string, page: number, perPage: number, amount: number) {
-    if (page > 1) {
-      const firstPageHref = `${path}?page=1&per_page=${perPage}`;
-      addPageElement(feed, `First Page`, firstPageHref);
-      addFeedLink(feed, firstPageHref, 'first')
-    }
+  if (page > 1) {
+    const firstPageHref = `${path}?page=1&per_page=${perPage}`;
+    addPageElement(feed, `First Page`, firstPageHref);
+    addFeedLink(feed, firstPageHref, 'first')
+  }
 
-    if (page > 1) {
-      const prevHref = `${path}?page=${page - 1}&per_page=${perPage}`;
-      addPageElement(feed, `Previous Page`, prevHref);
-      addFeedLink(feed, prevHref, 'previous');
-    }
+  if (page > 1) {
+    const prevHref = `${path}?page=${page - 1}&per_page=${perPage}`;
+    addPageElement(feed, `Previous Page`, prevHref);
+    addFeedLink(feed, prevHref, 'previous');
+  }
 
-    if (amount && amount > page * perPage) {
-      const nextHref = `${path}?page=${page + 1}&per_page=${perPage}`;
-      addPageElement(feed, `Next Page`, nextHref);
-      addFeedLink(feed, nextHref, 'next');
-    }
+  if (amount && amount > page * perPage) {
+    const nextHref = `${path}?page=${page + 1}&per_page=${perPage}`;
+    addPageElement(feed, `Next Page`, nextHref);
+    addFeedLink(feed, nextHref, 'next');
+  }
 
-    if (amount && amount > page * perPage) {
-      const lastPage = Math.ceil(amount / perPage);
-      const lastHref = `${path}?page=${lastPage}&per_page=${perPage}`;
+  if (amount && amount > page * perPage) {
+    const lastPage = Math.ceil(amount / perPage);
+    const lastHref = `${path}?page=${lastPage}&per_page=${perPage}`;
 
-      addPageElement(feed, `Last Page`, lastHref);
-      addFeedLink(feed, lastHref, 'last');
-    }
+    addPageElement(feed, `Last Page`, lastHref);
+    addFeedLink(feed, lastHref, 'last');
+  }
 }
 
 async function buildAuthorFeed(
@@ -152,7 +201,7 @@ async function buildAuthorFeed(
   console.log(`Building author feed for perPage: ${perPage}, page: ${page}, format: ${format}, path: ${relPath}`)
 
   if (pathSegments.length === 0) {
-    const authorsFirstLetters = indexer.getAuthorsFirstLetters();      
+    const authorsFirstLetters = indexer.getAuthorsFirstLetters();
 
     const feed = create({ version: '1.0', encoding: 'utf-8' }).ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
     feed.ele('title').txt(`Local OPDS (Authors): Root`);
@@ -169,8 +218,8 @@ async function buildAuthorFeed(
     return feed.end({ prettyPrint: true });
   } else if (pathSegments.length === 1 && pathSegments[0].length === 1) {
     const firstLetter = pathSegments[0];
-    const authors = indexer.getAuthors(firstLetter, page, perPage); 
-    
+    const authors = indexer.getAuthors(firstLetter, page, perPage);
+
     const feed = create({ version: '1.0', encoding: 'utf-8' }).ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
     feed.ele('title').txt(`Local OPDS (Authors): ${firstLetter} ${page && (authors.count) / perPage > 1 ? ` (Page ${page})` : ''}`);
     feed.ele('id').txt(feedIdForPath(relPath));
@@ -190,7 +239,7 @@ async function buildAuthorFeed(
   } else {
     const author = pathSegments[0];
     const books = indexer.getBooksByAuthor(author, page, perPage);
-    
+
 
     const feed = create({ version: '1.0', encoding: 'utf-8' })
       .ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
@@ -205,7 +254,7 @@ async function buildAuthorFeed(
     addFeedLink(feed, upHref, 'up');
 
     books.books.forEach((b: BookRecord) => {
-      addFileEntry(feed, baseUrl, relPath, format, b);
+      addFileEntry(feed, baseUrl, format, b);
     });
 
     const _path = `${baseUrl.replace(/\/$/, '')}/${format}opds/author/${encodeURIComponent(author)}`;
@@ -234,7 +283,7 @@ async function buildTitleFeed(
   const pathToList = path.join(baseDir, ...pathSegments);
 
   if (pathSegments.length === 0) {
-    const titleFirstletters: { letter: string }[] = indexer.getTitleFirstLetters();      
+    const titleFirstletters: { letter: string }[] = indexer.getTitleFirstLetters();
 
     const feed = create({ version: '1.0', encoding: 'utf-8' })
       .ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
@@ -253,7 +302,7 @@ async function buildTitleFeed(
   } else if (pathSegments.length === 1 && pathSegments[0].length === 1) {
     const firstLetter = pathSegments[0];
     const titleThreeletters: { letter: string }[] = indexer.getTitleThreeLetters(firstLetter);
-      
+
     const feed = create({ version: '1.0', encoding: 'utf-8' })
       .ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
     feed.ele('title').txt(`Local OPDS (Titles): Root`);
@@ -274,7 +323,7 @@ async function buildTitleFeed(
   } else {
     const firstLetter = pathSegments[0];
     const books = indexer.getBooksByTitle(firstLetter, page, perPage);
-    
+
     const feed = create({ version: '1.0', encoding: 'utf-8' }).ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
     feed.ele('title').txt(`Local OPDS (Titles): ${firstLetter} ${page && books.count / perPage > 1 ? ` (Page ${page})` : ''}`);
     feed.ele('id').txt(feedIdForPath(relPath));
@@ -283,11 +332,11 @@ async function buildTitleFeed(
     const selfHref = `${baseUrl.replace(/\/$/, '')}/${format}opds/title/${encodeURIComponent(firstLetter)}?page=${page}&per_page=${perPage}`;
     addFeedLink(feed, selfHref, 'self');
 
-    const upHref = `${baseUrl.replace(/\/$/, '')}/${format}opds/title/${encodeURIComponent(firstLetter).slice(0,1)}`;
+    const upHref = `${baseUrl.replace(/\/$/, '')}/${format}opds/title/${encodeURIComponent(firstLetter).slice(0, 1)}`;
     addFeedLink(feed, upHref, 'up');
 
     books.books.forEach((b: BookRecord) => {
-      addFileEntry(feed, baseUrl, relPath, format, b);
+      addFileEntry(feed, baseUrl, format, b);
     });
 
     const _path = `${baseUrl.replace(/\/$/, '')}/${format}opds/title/${encodeURIComponent(firstLetter)}`;
@@ -353,27 +402,9 @@ async function buildFolderFeed(
     addFeedLink(feed, upLinkHref, 'up');
   }
 
-  const _path = `${baseUrl.replace(/\/$/, '')}/${format}opds/folder${relPath ? '/' + relPath.split(path.sep).map(encodeURIComponent).join('/') : ''}`;
-
-  if (page > 1) {
-    const firstPageHref = `${_path}?page=1&per_page=${perPage}`;
-    //addPageElement(feed, `First Page`, firstPageHref);
-    addFeedLink(feed, firstPageHref, 'first');
-
-    const prevHref = `${_path}?page=${page - 1}&per_page=${perPage}`;
-    //addPageElement(feed, `Previous Page`, prevHref);
-    addFeedLink(feed, prevHref, 'previous');
-  }
-
-  if (sortedFilelist.length > page * perPage) {
-    const nextHref = `${_path}?page=${page + 1}&per_page=${perPage}`;
-    //addPageElement(feed, `Next Page`, nextHref);
-    addFeedLink(feed, nextHref, 'next');
-  }
-
   for (const e of entries) {
-    const fileStats = await fs.stat(path.join(baseDir, relPath, e.name));
-
+    console.log('folder entry', e.parentPath, e.name);
+    
     const entry = feed.ele('entry');
 
     entry.ele('id').txt(`${feedIdForPath(relPath)}:${e.name}`);
@@ -384,63 +415,16 @@ async function buildFolderFeed(
       entry.ele('title').txt(e.name || 'unknown');
       entry.ele('link', getSubseciton(href)).up();
       const fileCount = (await fs.readdir(path.join(baseDir, relPath, e.name))).length;
-
       entry.ele('content').txt(`directory (${fileCount} files)`);
     } else {
-      const type = getMimeType(e.name);
-      let title = e.name || 'unknown';
-      entry.ele('title').txt(title);
-      entry.ele('content').txt(`file, size: ${fileStats.size} bytes`);
-      // on fb2 or fb2.zip files, add link for fb2.epub or fb2.zip.epub if this file not exists yet
-      if (e.name.toLowerCase().endsWith('.fb2') || e.name.toLowerCase().endsWith('.fb2.zip')) {
-        const epubName = e.name + '.epub';
-        const epubPath = path.join(baseDir, relPath, epubName);
-        try {
-          await fs.access(epubPath);
-        } catch {
-          // file does not exist, add link for conversion
-          const convertHref = `${baseUrl.replace(/\/$/, '')}/${format}convert/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}${encodeURIComponent(epubName)}`;
-          entry.ele('link', {
-            title: 'Convert to Xteink ePub',
-            rel: 'http://opds-spec.org/acquisition/open-access',
-            href: convertHref,
-            type: 'application/epub+zip'
-          }).up();
-        }
-      } else if (e.name.toLowerCase().endsWith('.epub') || type === 'application/epub+zip') {
-        const convertHref = `${baseUrl.replace(/\/$/, '')}/${format}convert/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}${encodeURIComponent(e.name)}`;
-        entry.ele('link', {
-          title: 'Convert to Xteink ePub',
-          rel: 'http://opds-spec.org/acquisition/open-access',
-          href: convertHref,
-          type: 'application/epub+zip'
-        }).up();
-      }
-      const href = `${baseUrl.replace(/\/$/, '')}/${format}files/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}${encodeURIComponent(e.name)}`;
-      entry.ele('link', { rel: 'http://opds-spec.org/acquisition/open-access', href, type });
+      console.log('folder files', relPath, e.name);
+      await addFileEntryFromFile(entry, baseUrl, relPath, format, e)
     }
     entry.up();
   }
 
-  if (page > 1) {
-    const prevHref = `${_path}?page=${page - 1}&per_page=${perPage}`;
-
-    addPageElement(feed, `Previous Page`, prevHref);
-  }
-
-  if (sortedFilelist.length > page * perPage) {
-    const nextHref = `${_path}?page=${page + 1}&per_page=${perPage}`;
-
-    addPageElement(feed, `Next Page`, nextHref);
-  }
-
-  if (sortedFilelist.length > page * perPage) {
-    const lastPage = Math.ceil(sortedFilelist.length / perPage);
-    const lastHref = `${_path}?page=${lastPage}&per_page=${perPage}`;
-
-    addPageElement(feed, `Last Page`, lastHref);
-    addFeedLink(feed, lastHref, 'last');
-  }
+  const _path = `${baseUrl.replace(/\/$/, '')}/${format}opds/folder${relPath ? '/' + relPath.split(path.sep).map(encodeURIComponent).join('/') : ''}`;
+  addPagination(feed, _path, page, perPage, entries.length);
 
   return feed.end({ prettyPrint: true });
 }
