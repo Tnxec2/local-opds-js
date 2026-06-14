@@ -24,16 +24,39 @@ export type BookRecord = {
 export class Indexer {
   db: BetterSqlite3;
   dbPath: string;
+  scanPath: string;
   isScaning: boolean = false;
   countBooks: number;
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, scanPath: string) {
     this.dbPath = dbPath;
+    this.scanPath = scanPath;
     this.db = new Database(dbPath);
     this.prepareTables();
     this.isScaning = false;
     const countBooks = this.db.prepare<unknown[], {count: number}>('SELECT COUNT(*) as count FROM books').get();
     this.countBooks = countBooks?.count || 0;
+    // perform an initial scan in background only if DB is empty
+      
+    if (this.countBooks === 0) {
+      this.performScan();
+      return;
+    } else if (this.countBooks > 0) {
+      const firstBookPath = this.getOne()?.relpath || '';
+      if (!firstBookPath.startsWith(scanPath)) {
+        console.log('Database path is not the same as BASE_DIR.')
+        this.performScan();
+        return;
+      }
+    }
+    console.log(`Found ${this.countBooks} books in database. Skipping initial scan.\n`)
+  }
+
+  performScan() {
+    console.log('Performing initial scan...')
+    this.scanDirectory(this.scanPath)
+      .then(() => console.log('Indexing completed'))
+      .catch(err => console.error('Indexing error', err));
   }
 
   prepareTables() {
@@ -316,6 +339,10 @@ export class Indexer {
     return {
       count: booksCount?.count || 0, books: books
     }
+  }
+
+  getOne() {
+    return this.db.prepare<unknown[], BookRecord>('SELECT * FROM books LIMIT 1').get();
   }
 }
 
