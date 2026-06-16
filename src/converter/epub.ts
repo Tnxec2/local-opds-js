@@ -34,9 +34,9 @@ function escapeXML(s: string) {
 function wrapAsXHTML(title: string, bodyContent: string, lang: string): string {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="${escapeXML(lang)}" lang="${escapeXML(lang)}">
+<html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-<meta charset="UTF-8" />
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
 <title>${escapeXML(title)}</title>
 ${DEFENSIVE_STYLE}
 </head>
@@ -55,7 +55,8 @@ function buildNavXHTML(bookTitle: string, chapters: any[], lang: string): string
         .join("\n");
     return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${escapeXML(lang)}" lang="${escapeXML(lang)}">
+<html xmlns="http://www.w3.org/1999/xhtml" 
+xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${escapeXML(lang)}" lang="${escapeXML(lang)}">
 <head>
 <meta charset="UTF-8" />
 <title>Table of Contents</title>
@@ -94,8 +95,8 @@ function buildContentOpf(opf: {
         .map((sr) => `\t<itemref idref="${escapeXML(sr.idref)}" />`)
         .join("\n");
     return `<?xml version="1.0" encoding="UTF-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="pub-id" version="3.0" xml:lang="${escapeXML(opf.lang)}">
-<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="uuid_id" version="2.0">
+<metadata xmlns:opf="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">
 ${opf.coverId ? `<meta name="cover" content="cover"/>` : ""}
 <dc:identifier id="pub-id">${escapeXML(opf.id)}</dc:identifier>
 <dc:title>${escapeXML(opf.title)}</dc:title>
