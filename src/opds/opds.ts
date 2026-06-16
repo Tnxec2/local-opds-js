@@ -138,7 +138,7 @@ async function addFileLink(entry: XMLBuilder, baseUrl: string, relPath: string, 
       }
     } else if (fileName.toLowerCase().endsWith('.epub')) {
       const basePath = `${baseUrl.replace(/\/$/, '')}/${format}convert/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}`
-      const convertHref = `${basePath}${encodeURIComponent(fileName)}`;
+      const convertHref = `${basePath}${encodeURIComponent(fileName)}.epub`;
       entry.ele('link', {
         title: 'Convert to Xteink ePub',
         rel: 'http://opds-spec.org/acquisition/open-access',
@@ -155,6 +155,8 @@ async function addFileLink(entry: XMLBuilder, baseUrl: string, relPath: string, 
 }
 
 function addPagination(feed: XMLBuilder, path: string, page: number, perPage: number, amount: number) {
+  console.log('addPagination', path, page, perPage, amount);
+  
   if (page > 1) {
     const firstPageHref = `${path}?page=1&per_page=${perPage}`;
     addPageElement(feed, `First Page`, firstPageHref);
@@ -402,9 +404,7 @@ async function buildFolderFeed(
     addFeedLink(feed, upLinkHref, 'up');
   }
 
-  for (const e of entries) {
-    console.log('folder entry', e.parentPath, e.name);
-    
+  for (const e of entries) {    
     const entry = feed.ele('entry');
 
     entry.ele('id').txt(`${feedIdForPath(relPath)}:${e.name}`);
@@ -417,14 +417,13 @@ async function buildFolderFeed(
       const fileCount = (await fs.readdir(path.join(baseDir, relPath, e.name))).length;
       entry.ele('content').txt(`directory (${fileCount} files)`);
     } else {
-      console.log('folder files', relPath, e.name);
       await addFileEntryFromFile(entry, baseUrl, relPath, format, e)
     }
     entry.up();
   }
 
   const _path = `${baseUrl.replace(/\/$/, '')}/${format}opds/folder${relPath ? '/' + relPath.split(path.sep).map(encodeURIComponent).join('/') : ''}`;
-  addPagination(feed, _path, page, perPage, entries.length);
+  addPagination(feed, _path, page, perPage, sortedFilelist.length);
 
   return feed.end({ prettyPrint: true });
 }
