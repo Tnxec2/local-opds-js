@@ -59,7 +59,7 @@ export class ePubParser {
 
   /**
    * Fetches all CSS files from the ePub archive.
-   * @returns {Promise<string[]>} A promise that resolves to an array of CSS file contents.
+   * @returns {Promise<Array<{content: string, name: string, path: string}>>} A promise that resolves to an array of CSS file objects.
    */
   async fetchBookCSS() {
     return await this.getFilesByExtension(".css", "string");
@@ -97,7 +97,7 @@ export class ePubParser {
    * Retrieves files with a specific extension from the ePub archive.
    * @param {string} extension - The file extension to filter by (e.g., `.html`).
    * @param {string} type - The type of file content to retrieve (e.g., `string`, `base64`).
-   * @returns {Promise<string[]>} A promise that resolves to an array of file contents.
+   * @returns {Promise<Array<{content: any, name: string, path: string}>>} A promise that resolves to an array of objects containing file content, name, and path.
    */
   async getFilesByExtension(extension: string, type: any) {
     if (!this.loadedFile) return [];
@@ -108,7 +108,14 @@ export class ePubParser {
       (file) => !file.dir && file.name.toLowerCase().endsWith(lower)
     );
 
-    const filesPromises = files.map((file) => file.async(type));
+    const filesPromises = files.map(async (file) => {
+      const content: string = await file.async(type);
+      return {
+        content,
+        name: file.name.substring(file.name.lastIndexOf("/") + 1),
+        path: file.name
+      };
+    });
     const filesResolves = await Promise.all(filesPromises);
 
     return filesResolves;
@@ -160,8 +167,8 @@ export class ePubParser {
 
     const allHtmlFiles = [...htmlFiles, ...xhtmlFiles];
 
-    const htmlStringsPromises = allHtmlFiles.map(async (file) => {
-      const dom = new DOMParser().parseFromString(file, "text/html");
+    const htmlStringsPromises = allHtmlFiles.map(async (fileObj) => {
+      const dom = new DOMParser().parseFromString(fileObj.content, "text/html");
       const doc = dom;
 
       const imageElements = Array.from(doc.getElementsByTagName("img"));

@@ -3,20 +3,14 @@
 export type ManifestItem = { id: string; href: string; mediaType: string; properties?: string }
 export type SpineItemref = { idref: string }
 
-const CSS = `
-@charset "UTF-8";
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", "Liberation Sans", Arial, "Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji"; line-height: 1.6; padding: 1rem; }
-h1,h2,h3 { line-height: 1.25; }
-h1 { font-size: 1.6rem; margin: 1rem 0 .5rem; }
-h2 { font-size: 1.4rem; margin: 1rem 0 .5rem; }
-h3 { font-size: 1.2rem; margin: .8rem 0 .4rem; }
-p { margin: .6rem 0; }
-blockquote { margin: .8rem 1rem; padding-left: .8rem; border-left: 3px solid #ccc; }
-.poem { margin: .8rem 0; }
-.stanza { margin: .6rem 0; }
-img { max-width: 100%; height: auto; }
-hr { border: 0; border-top: 1px solid #ddd; margin: 1rem 0; }
-    `.trim();
+/** Defensive CSS injected into every XHTML <head> — prevents e-ink overflow. */
+const DEFENSIVE_STYLE = `<style type="text/css">
+img,svg{max-width:100%;height:auto}
+body{overflow-wrap:break-word}
+table{max-width:100%;table-layout:fixed}
+pre,code{white-space:pre-wrap;word-wrap:break-word}
+*{box-sizing:border-box}
+</style>`;
 
 const META_INF = `<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0"
@@ -43,9 +37,8 @@ function wrapAsXHTML(title: string, bodyContent: string, lang: string): string {
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="${escapeXML(lang)}" lang="${escapeXML(lang)}">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${escapeXML(title)}</title>
-<link rel="stylesheet" type="text/css" href="styles.css" />
+${DEFENSIVE_STYLE}
 </head>
 <body>
 ${bodyContent}
@@ -66,7 +59,7 @@ function buildNavXHTML(bookTitle: string, chapters: any[], lang: string): string
 <head>
 <meta charset="UTF-8" />
 <title>Table of Contents</title>
-<link rel="stylesheet" type="text/css" href="styles.css" />
+${DEFENSIVE_STYLE}
 </head>
 <body>
 <nav epub:type="toc" id="toc">
@@ -125,7 +118,7 @@ export const EPUB = {
     wrapAsXHTML,
     buildNavXHTML,
     buildContentOpf,
-    CSS,
+    DEFENSIVE_STYLE,
     META_INF,
 }
 
