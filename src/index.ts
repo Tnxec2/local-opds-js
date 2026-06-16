@@ -184,6 +184,8 @@ function saveAndRespond(epubBuffer: Buffer, savePath: string, res: express.Respo
 
   // Serve the converted EPUB
   const filename = encodeURIComponent(path.basename(savePath));
+  console.log(`serve the converted epug. size: name: ${filename}, size:${epubBuffer.byteLength} bytes`);
+  
   res.set('Content-Type', 'application/epub+zip');
   res.set('Content-Length', epubBuffer.length.toString());
   res.set('Content-Disposition', `attachment; filename="${filename}"`);
