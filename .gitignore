@@ -4,3 +4,4 @@ ebooks/
 .cache/
 *.log
 startme.sh
+temp/
