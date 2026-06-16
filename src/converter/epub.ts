@@ -37,7 +37,7 @@ function wrapAsXHTML(title: string, bodyContent: string, lang: string): string {
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-<title>${escapeXML(title)}</title>
+<title>${escapeXML(title.replace(/\s+/g, " "))}</title>
 ${DEFENSIVE_STYLE}
 </head>
 <body>

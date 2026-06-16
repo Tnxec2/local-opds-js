@@ -252,7 +252,7 @@ export class FB2ToEPUBConverter {
                 
                 const chapTitle = titleNode
                     ? textContentDeep(titleNode).trim()
-                    : `Chapter ${chapterIndex}`;
+                    : "";
                 const htmlContent = serializeSectionToXHTML(
                     section,
                     binaries,
@@ -451,7 +451,7 @@ export class FB2ToEPUBConverter {
                     const { fileExt, jpgBuffer } = await ImageConverter.convertImage(img, this.xteinkConfig?.coverWidth, this.xteinkConfig?.coverHeight, this.xteinkConfig?.enableGrayscale)
                     imagesFolder?.file(`${id}.${fileExt}`, jpgBuffer);
                     manifestItems.push({
-                        id: `img_${id}`,
+                        id: `${id}`,
                         href: `images/${id}.${fileExt}`,
                         mediaType: 'image/jpeg',
                     });
@@ -459,7 +459,7 @@ export class FB2ToEPUBConverter {
                     console.warn('Failed to convert image to JPEG, saving original', id, err);
                     imagesFolder?.file(`${id}.${ext}`, arrayBuf);
                     manifestItems.push({
-                        id: `img_${id}`,
+                        id: `${id}`,
                         href: `images/${id}.${ext}`,
                         mediaType: bin.mime,
                     });
@@ -661,7 +661,7 @@ function serializeInline(node: any, binaries: any): string {
             const href = getHref(node).replace(/^#/, "");
             if (href && binaries[href]) {
                 const ext = 'jpg'; // binaries[href].ext || "jpg";
-                return `<img alt="" src="images/${href}.${ext}" />`;
+                return `<img alt="${href}" src="images/${href}.${ext}" />`;
             }
             return "";
         }
@@ -693,7 +693,7 @@ function serializeSectionToXHTML(section: Element, binaries: any, depth = 1): st
                 .map((p) => serializeInline(p, binaries))
                 .join(" ")
             : escapeXML(textContentDeep(titleNode).trim());
-        html += `<h${d}>${t}</h${d}>`;
+        html += `<h${d}>${t.replace(/[\r\n]/g, "<br>").replace(/\s+/g, " ")}</h${d}>`;
     }
 
     for (const node of nodes) {
@@ -741,7 +741,7 @@ function serializeSectionToXHTML(section: Element, binaries: any, depth = 1): st
             const href = getHref(node).replace(/^#/, "");
             if (href && binaries[href]) {
                 const ext = 'jpg'; // binaries[href].ext || "jpg";
-                html += `<p><img alt="" src="images/${href}.${ext}" ></p>`;
+                html += `<p><img alt="${href}" src="images/${href}.${ext}" ></p>`;
             }
         } else if (tag === "section") {
             // nested section -> recursive
