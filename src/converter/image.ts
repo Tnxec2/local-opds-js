@@ -26,7 +26,7 @@ function convertImage(
             if (enableGrayScale) {
                 applyGrayscale(ctx, width, height);
             }
-            const jpgBuffer = canvas.toBuffer('image/jpeg', { quality: 0.75, progressive: true });
+            const jpgBuffer = canvas.toBuffer('image/jpeg', { quality: 0.85 });
             resolve({
                 fileExt: 'jpg',
                 jpgBuffer: jpgBuffer
