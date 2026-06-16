@@ -21,7 +21,7 @@ import { ePubXteinkCleaner } from './converter/epub-xteink.js';
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const BASE_DIR = process.env.EBOOK_DIR || path.resolve(process.cwd(), 'ebooks');
 const CACHE_DIR = path.resolve(process.cwd(), '.cache');
-
+const DEFAULT_OPDS_PER_PAGE = 10;
 
 const app = express();
 
@@ -215,7 +215,7 @@ async function getOpdsFeed(
   try {
     const relPath = decodeURIComponent(urlPath || '');
     const page = req.query.page ? parseInt(req.query.page as string, 10) : 1;
-    const perPage = req.query.per_page ? parseInt(req.query.per_page as string, 10) : 5;
+    const perPage = req.query.per_page ? parseInt(req.query.per_page as string, 10) : DEFAULT_OPDS_PER_PAGE;
 
     const firstSegment = urlPath.split('/')[0];
     switch (firstSegment) {
