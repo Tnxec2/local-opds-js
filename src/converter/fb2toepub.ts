@@ -350,7 +350,7 @@ export class FB2ToEPUBConverter {
 
             const oebps = zip.folder("OEBPS");
 
-            oebps?.file("styles.css", EPUB.CSS);
+            // oebps?.file("styles.css", EPUB.CSS);
 
             // Write chapter files
             const lang = (this.bookMetadata.language || "en").toLowerCase();
