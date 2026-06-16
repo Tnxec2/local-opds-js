@@ -315,7 +315,7 @@ export class FB2ToEPUBConverter {
             if (this.bookMetadata.annotation) {
                 chapters.unshift({
                     fb2Id: null,
-                    id: 'annotation',
+                    id: 'annotationpage',
                     title: 'Annotation',
                     content: this.bookMetadata.annotation,
                 });
@@ -323,16 +323,16 @@ export class FB2ToEPUBConverter {
             if (this.bookMetadata.coverId) {
                 chapters.unshift({
                     fb2Id: null,
-                    id: 'cover',
+                    id: 'coverpage',
                     title: 'Cover',
-                    content: `<img alt="" src="images/img_${this.bookMetadata.coverId}" />`,
+                    content: `<img alt="cover" src="images/${this.bookMetadata.coverId}" />`,
                 });
             }
 
-            console.log('chapters')
-            chapters.forEach((ch, idx) => {
-                console.log(idx, ch.id, ch.fb2Id, ch.title);
-            })
+            // console.log('chapters')
+            // chapters.forEach((ch, idx) => {
+            //     console.log(idx, ch.id, ch.fb2Id, ch.title);
+            // })
 
             // Create EPUB structure using JSZip
             const zip = new JSZip();
@@ -562,8 +562,6 @@ export class FB2ToEPUBConverter {
 }
 
 
-
-
 function textContentDeep(node: Node): string {
     return node.textContent || '';
     // Get visible concatenated text (preserves Unicode)
@@ -680,10 +678,12 @@ function getHref(node: Element) {
         ""
 }
 
-function serializeSectionToXHTML(section: Element, binaries: any): string {
+function serializeSectionToXHTML(section: Element, binaries: any, depth = 1): string {
     // Map FB2 block-level elements to semantic XHTML
     let html = "";
     const nodes = [...section.children];
+
+    const d = depth > 6 ? 6 : depth
 
     // optional title
     const titleNode = section.getElementsByTagName("title")[0];
@@ -693,7 +693,7 @@ function serializeSectionToXHTML(section: Element, binaries: any): string {
                 .map((p) => serializeInline(p, binaries))
                 .join(" ")
             : escapeXML(textContentDeep(titleNode).trim());
-        html += `<h2>${t}</h2>`;
+        html += `<h${d}>${t}</h${d}>`;
     }
 
     for (const node of nodes) {
@@ -704,16 +704,16 @@ function serializeSectionToXHTML(section: Element, binaries: any): string {
         if (tag === "p") {
             html += `<p>${serializeInline(node, binaries)}</p>`;
         } else if (tag === "subtitle") {
-            html += `<h3>${serializeInline(node, binaries)}</h3>`;
+            html += `<h${d + 1}>${serializeInline(node, binaries)}</h${d + 1}>`;
         } else if (tag === "epigraph") {
             const inner = [...node.getElementsByTagName("p")]
                 .map((p) => serializeInline(p, binaries))
-                .join("<br />");
+                .join("<br>");
             html += `<blockquote>${inner}</blockquote>`;
         } else if (tag === "cite") {
             const inner = [...node.children]
                 .map((n) => serializeInline(n, binaries))
-                .join("<br />");
+                .join("<br>");
             html += `<blockquote>${inner}</blockquote>`;
         } else if (tag === "poem") {
             html += `<div class="poem">`;
@@ -736,16 +736,16 @@ function serializeSectionToXHTML(section: Element, binaries: any): string {
                 html += `<div class="text-right italic">${serializeInline(author, binaries)}</div>`;
             html += `</div>`;
         } else if (tag === "empty-line") {
-            html += `<hr />`;
+            html += `<br>`;
         } else if (tag === "image") {
             const href = getHref(node).replace(/^#/, "");
             if (href && binaries[href]) {
                 const ext = 'jpg'; // binaries[href].ext || "jpg";
-                html += `<p><img alt="" src="images/${href}.${ext}" /></p>`;
+                html += `<p><img alt="" src="images/${href}.${ext}" ></p>`;
             }
         } else if (tag === "section") {
             // nested section -> recursive
-            html += serializeSectionToXHTML(node, binaries);
+            // html += serializeSectionToXHTML(node, binaries, depth + 1);
         } else {
             // Unknown block -> try inline serialization inside <p>
             html += `<p>${serializeInline(node, binaries)}</p>`;
