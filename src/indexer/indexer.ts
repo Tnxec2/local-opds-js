@@ -5,6 +5,8 @@ import { ePubParser } from '../epub/epub-parser.js';
 import { parseStringPromise } from 'xml2js';
 import JSZip from 'jszip';
 
+const SCAN_PATH = 'scan_path'
+
 export type BookRecord = {
   id?: number;
   relpath: string; // relative to base dir
@@ -42,8 +44,9 @@ export class Indexer {
       this.performScan();
       return;
     } else if (this.countBooks > 0) {
-      const firstBookPath = this.getOne()?.relpath || '';
-      if (!firstBookPath.startsWith(scanPath)) {
+      const _scanPath = this.getScanPath();
+            
+      if (!_scanPath || _scanPath !== scanPath) {
         console.log('Database path is not the same as BASE_DIR.')
         this.performScan();
         return;
@@ -54,6 +57,7 @@ export class Indexer {
 
   performScan() {
     console.log('Performing initial scan...')
+    this.saveScanPath(this.scanPath);
     this.scanDirectory(this.scanPath)
       .then(() => console.log('Indexing completed'))
       .catch(err => console.error('Indexing error', err));
@@ -77,7 +81,7 @@ export class Indexer {
         cover TEXT
       );
     `);
-    this.insertStmt = this.db.prepare(`
+    this.insertStmtBooks = this.db.prepare(`
       INSERT INTO books (relpath, filename, title, author, language, publisher, description, format, ext, size, mtime, cover)
       VALUES (@relpath, @filename, @title, @author, @language, @publisher, @description, @format, @ext, @size, @mtime, @cover)
       ON CONFLICT(relpath) DO UPDATE SET
@@ -93,9 +97,13 @@ export class Indexer {
         mtime=excluded.mtime,
         cover=excluded.cover
     `);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );`);
   }
 
-  insertStmt: any;
+  insertStmtBooks: any;
 
   async scanDirectory(baseDir: string) {
     if (this.isScaning) return;
@@ -147,7 +155,7 @@ export class Indexer {
             mtime: st.mtimeMs,
             cover: meta.cover || null,
           };
-          this.insertStmt.run(rec);
+          this.insertStmtBooks.run(rec);
           this.countBooks++;
         } catch (err) {
           console.error('Failed to index epub', full, err);
@@ -173,7 +181,7 @@ export class Indexer {
             mtime: st.mtimeMs,
             cover: null,
           };
-          this.insertStmt.run(rec);
+          this.insertStmtBooks.run(rec);
           this.countBooks++;
         } catch (err) {
           console.error('Failed to index fb2', full, err);
@@ -199,7 +207,7 @@ export class Indexer {
             mtime: st.mtimeMs,
             cover: null,
           };
-          this.insertStmt.run(rec);
+          this.insertStmtBooks.run(rec);
           this.countBooks++;
         } catch (err) {
           console.error('Failed to index fb2', full, err);
@@ -341,8 +349,12 @@ export class Indexer {
     }
   }
 
-  getOne() {
-    return this.db.prepare<unknown[], BookRecord>('SELECT * FROM books LIMIT 1').get();
+  getScanPath() {
+    return this.db.prepare<string, {value: string}>('SELECT value FROM settings WHERE key = ? LIMIT 1').get(SCAN_PATH)?.value;
+  }
+
+  saveScanPath(path: string) {
+    this.db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(SCAN_PATH, path);
   }
 }
 

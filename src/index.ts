@@ -66,22 +66,9 @@ async function getConvertedFile(format: string | null, req: any, res: express.Re
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    // check for fb2.epub and fb2.zip.epub  
-    // if the requested file is not .fb2.epub or .fb2.zip.epub, serve it directly if it exists
-    if (!fullPath.endsWith('.fb2.epub') && !fullPath.endsWith('.fb2.zip.epub')) {
-      
-      if (fullPath.endsWith('.epub')) {
-        return epubToXteinkEpub(format, fullPath, res);
-      } 
-      try {
-        // check if file exists
-        await fs.access(fullPath);         
-        // File exists, serve it
-        return res.download(fullPath);
-      } catch {
-        return res.status(404).json({ error: `File not found: ${fullPath}` });
-      }
-    }
+    if (fullPath.endsWith('.epub.epub')) {
+      return epubToXteinkEpub(format, fullPath.replace(/\.epub\.epub$/, '.epub'), res);
+    } 
 
     if (fullPath.endsWith('.fb2.epub')) {
       const fb2Path = fullPath.replace(/\.fb2\.epub$/, '.fb2');
@@ -173,34 +160,21 @@ async function epubToXteinkEpub(format: string | null, inputFile: string, res: e
     const outputFile = inputFile.replace(/\.epub$/, format ? `.${format}.epub` : '.cleaned.epub');
 
     if (format) {
-      const cleanedPath = inputFile.replace(/\.epub$/, `.${format}.epub`);
-      try {
-        await fs.access(cleanedPath);
-        console.log(`Serving cached cleaned EPUB: ${cleanedPath}`);
-        return res.download(cleanedPath);
-      } catch {
-        console.log(`Cleaning EPUB for Xteink format ${format}: ${inputFile}`);
-        
-        const cleaner = new ePubXteinkCleaner(format);
-        cleaner.cleanEpub(inputFile, outputFile)
-        .then(() => {
-            console.log(`ePub cleaned and saved as ${outputFile}`);
-            // serve original file while cleaning is in progress
-            return res.download(outputFile);
+      console.log(`Cleaning EPUB for Xteink format ${format}: ${inputFile}`);
+      
+      const cleaner = new ePubXteinkCleaner(format);
+      cleaner.cleanEpub(inputFile)
+        .then((epubBuffer) => {
+            saveAndRespond(epubBuffer, outputFile, res);
         }).catch(err => {
             console.error('Error cleaning ePub:', err);
             return res.status(500).json({ error: 'Failed to clean ePub for Xteink' });
         });
-        
-      }
     } else {
       // no format specified, just serve original file
       return res.download(inputFile);
     }
   }
-    
-    
-
 
 function saveAndRespond(epubBuffer: Buffer, savePath: string, res: express.Response) {
   // Save converted EPUB for future use
