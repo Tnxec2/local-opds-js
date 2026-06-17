@@ -410,15 +410,19 @@ async function buildFolderFeed(
     entry.ele('id').txt(`${feedIdForPath(relPath)}:${e.name}`);
     entry.ele('updated').txt(now);
 
-    if (e.isDirectory() || e.isSymbolicLink()) {
-      const href = `${baseUrl.replace(/\/$/, '')}/${format}opds/folder/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}${encodeURIComponent(e.name)}`;
-      entry.ele('title').txt(e.name || 'unknown');
-      entry.ele('link', getSubseciton(href)).up();
-      const fileCount = (await fs.readdir(path.join(baseDir, relPath, e.name))).length;
-      entry.ele('content').txt(`directory (${fileCount} files)`);
-    } else {
-      await addFileEntryFromFile(entry, baseUrl, relPath, format, e)
-    }
+    if (e.isDirectory()) {
+      await addDirectory(entry, baseUrl, format, baseDir, relPath, e)
+      entry.up();
+      continue;
+    } else if (e.isSymbolicLink()) {
+      const stats = await fs.stat(await fs.realpath(e.parentPath + path.sep + e.name));
+      if (stats.isDirectory()) {
+        await addDirectory(entry, baseUrl, format, baseDir, relPath, e);
+        entry.up();
+        continue;
+      }
+    } 
+    await addFileEntryFromFile(entry, baseUrl, relPath, format, e)
     entry.up();
   }
 
@@ -426,6 +430,14 @@ async function buildFolderFeed(
   addPagination(feed, _path, page, perPage, sortedFilelist.length);
 
   return feed.end({ prettyPrint: true });
+}
+
+async function addDirectory(entry: XMLBuilder, baseUrl: string, format: 'x4' | 'x3' | '', baseDir: string, relPath: string, e: Dirent<string>) {
+  const href = `${baseUrl.replace(/\/$/, '')}/${format}opds/folder/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}${encodeURIComponent(e.name)}`;
+  entry.ele('title').txt(e.name || 'unknown');
+  entry.ele('link', getSubseciton(href)).up();
+  const fileCount = (await fs.readdir(path.join(baseDir, relPath, e.name))).length;
+  entry.ele('content').txt(`directory (${fileCount} files)`);
 }
 
 export { buildMainFeed, buildFolderFeed, buildAuthorFeed, buildTitleFeed };

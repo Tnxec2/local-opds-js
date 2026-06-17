@@ -132,7 +132,15 @@ export class Indexer {
         await this._walkAndIndex(root, full);
         continue;
       }
-
+      if (it.isSymbolicLink()) {
+        const stats = await fs.stat(await fs.realpath(full));
+        if (stats.isDirectory()) {
+          console.log('scan symbolic link directory', it.name);
+          
+          await this._walkAndIndex(root, full);
+          continue;
+        }
+      }
       const rel = path.relative(root, full).split(path.sep).join('/');
       const ext = it.name.toLowerCase();
       if (ext.endsWith('.epub')) {
