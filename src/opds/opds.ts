@@ -220,6 +220,7 @@ async function buildAuthorFeed(
     return feed.end({ prettyPrint: true });
   } else if (pathSegments.length === 1 && pathSegments[0].length === 1) {
     const firstLetter = pathSegments[0];
+    
     const authors = indexer.getAuthors(firstLetter, page, perPage);
 
     const feed = create({ version: '1.0', encoding: 'utf-8' }).ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });

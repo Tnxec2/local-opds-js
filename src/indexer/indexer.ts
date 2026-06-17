@@ -11,12 +11,12 @@ export type BookRecord = {
   id?: number;
   relpath: string; // relative to base dir
   filename: string;
-  title?: string;
-  author?: string;
+  title: string;
+  author: string;
+  sortAuthor?: string;
   language?: string;
   publisher?: string;
   description?: string;
-  format: string;
   ext: string;
   size?: number;
   mtime?: number;
@@ -67,31 +67,31 @@ export class Indexer {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS books (
         id INTEGER PRIMARY KEY,
-        relpath TEXT UNIQUE,
+        relpath TEXT,
         filename TEXT,
         title TEXT,
         author TEXT,
+        sortAuthor TEXT,
         language TEXT,
         publisher TEXT,
         description TEXT,
-        format TEXT,
         ext TEXT,
         size INTEGER,
         mtime INTEGER,
-        cover TEXT
+        cover TEXT,
+        UNIQUE(relpath, sortAuthor)
       );
     `);
     this.insertStmtBooks = this.db.prepare(`
-      INSERT INTO books (relpath, filename, title, author, language, publisher, description, format, ext, size, mtime, cover)
-      VALUES (@relpath, @filename, @title, @author, @language, @publisher, @description, @format, @ext, @size, @mtime, @cover)
-      ON CONFLICT(relpath) DO UPDATE SET
+      INSERT INTO books (relpath, filename, title, author, sortAuthor, language, publisher, description, ext, size, mtime, cover)
+      VALUES (@relpath, @filename, @title, @author, @sortAuthor, @language, @publisher, @description, @ext, @size, @mtime, @cover)
+      ON CONFLICT(relpath, sortAuthor) DO UPDATE SET
         filename=excluded.filename,
         title=excluded.title,
         author=excluded.author,
         language=excluded.language,
         publisher=excluded.publisher,
         description=excluded.description,
-        format=excluded.format,
         ext=excluded.ext,
         size=excluded.size,
         mtime=excluded.mtime,
@@ -143,34 +143,51 @@ export class Indexer {
       }
       const rel = path.relative(root, full).split(path.sep).join('/');
       const ext = it.name.toLowerCase();
-      if (ext.endsWith('.epub')) {
+
+      if (ext.endsWith('.txt') || ext.endsWith('.md') || ext.endsWith('.html') || ext.endsWith('.htm')) {
         try {
-          const format = ext.endsWith('.x3.epub') ? 'x3' : ext.endsWith('.x4.epub') ? 'x4' : '';
-          
+          const st = await fs.stat(full);
+          const rec: BookRecord = {
+            relpath: rel,
+            filename: it.name,
+            title: it.name,
+            author: 'unknown',
+            language: '',
+            publisher: '',
+            description: '',
+            ext: 'txt',
+            size: st.size,
+            mtime: st.mtimeMs,
+            cover: null,
+          };
+          this.variorAuthors(rec);
+        } catch (err) {
+          console.error('Failed to index txt', full, err);
+        }
+      } else if (ext.endsWith('.epub')) {
+        try {         
           const meta = await this._parseEpub(full);
           const st = await fs.stat(full);
           const rec: BookRecord = {
             relpath: rel,
             filename: it.name,
             title: meta.title || it.name,
-            author: meta.author || '',
+            author: meta.author || 'unknown',
             language: meta.language || '',
             publisher: meta.publisher || '',
             description: meta.description || '',
             ext: 'epub',
-            format: format,
             size: st.size,
             mtime: st.mtimeMs,
             cover: meta.cover || null,
           };
-          this.insertStmtBooks.run(rec);
+          this.variorAuthors(rec);
           this.countBooks++;
         } catch (err) {
           console.error('Failed to index epub', full, err);
         }
       } else if (ext.endsWith('.fb2')) {
         try {
-          
           const format = ext.endsWith('.x3.fb2') ? 'x3' : ext.endsWith('.x4.fb2') ? 'x4' : '';
 
           const meta = await this._parseFb2(full);
@@ -179,17 +196,16 @@ export class Indexer {
             relpath: rel,
             filename: it.name,
             title: meta.title || it.name,
-            author: meta.author || '',
+            author: meta.author || 'unknown',
             language: meta.lang || '',
             publisher: '',
             description: '',
             ext: 'fb2',
-            format: format,
             size: st.size,
             mtime: st.mtimeMs,
             cover: null,
           };
-          this.insertStmtBooks.run(rec);
+          this.variorAuthors(rec);
           this.countBooks++;
         } catch (err) {
           console.error('Failed to index fb2', full, err);
@@ -205,17 +221,16 @@ export class Indexer {
             relpath: rel,
             filename: it.name,
             title: meta.title || it.name,
-            author: meta.author || '',
+            author: meta.author || 'unknown',
             language: meta.lang || '',
             publisher: '',
             description: '',
             ext: 'fb2.zip',
-            format: format,
             size: st.size,
             mtime: st.mtimeMs,
             cover: null,
           };
-          this.insertStmtBooks.run(rec);
+          this.variorAuthors(rec);
           this.countBooks++;
         } catch (err) {
           console.error('Failed to index fb2', full, err);
@@ -224,6 +239,33 @@ export class Indexer {
         // skip other file types
       }
     }
+  }
+
+  variorAuthors(rec: BookRecord) {
+    // unterteile author in Wörter, tausche Name mit Vorname und speichere beide Varianten
+    
+
+    const authors = rec.author.split(',').map(a => a.trim());
+    const savedWords: string[] = [];
+
+    authors.forEach((author) => {
+      const words = author.split(' ');
+      if (words.length > 1) {  
+        words?.forEach((word) => {
+          if (word.length > 2)
+            this.insertStmtBooks.run({...rec, sortAuthor: word + ` (${author})`});
+            savedWords.push(word);
+        });
+      }
+    });
+
+    const firstWord = rec.author.split(' ')[0];
+    
+    if (savedWords.length === 0 || (!savedWords.includes(firstWord))) {
+      this.insertStmtBooks.run({...rec, sortAuthor: rec.author});
+      return;
+    }
+    
   }
 
   async _parseEpub(filePath: string) {
@@ -306,25 +348,25 @@ export class Indexer {
 
   getAuthorsFirstLetters(): { letter: string }[] {
     return this.db
-      .prepare<unknown[], { letter: string }>('SELECT DISTINCT SUBSTR(author, 1, 1) AS letter FROM books WHERE author IS NOT NULL ORDER BY letter')
+      .prepare<unknown[], { letter: string }>('SELECT DISTINCT SUBSTR(sortAuthor, 1, 1) AS letter FROM books WHERE sortAuthor IS NOT NULL ORDER BY letter')
       .all();
   }
 
   getAuthors(firstLetter: string, page: number, perPage: number): { count: number, authors: string[]}  {
-    const count = this.db.prepare<string, {count: number}>('SELECT COUNT(*) as count FROM books WHERE author LIKE ?')
+    const count = this.db.prepare<string, {count: number}>('SELECT COUNT(DISTINCT sortAuthor) as count FROM books WHERE sortAuthor LIKE ?')
         .get(firstLetter + '%')
-    const authors = this.db.prepare<string[], { author: string }>('SELECT DISTINCT author FROM books WHERE author LIKE ? ORDER BY author LIMIT ? OFFSET ?')
+    const authors = this.db.prepare<string[], { author: string }>('SELECT DISTINCT sortAuthor as author FROM books WHERE sortAuthor LIKE ? ORDER BY sortAuthor LIMIT ? OFFSET ?')
             .all(firstLetter + '%', perPage.toString(), ((page - 1) * perPage).toString())
     return { count: count?.count || 0, authors: authors.map(a => a.author)}
   }
 
   getBooksByAuthor(author: string, page: number, perPage: number) {
     const booksCount = this.db
-      .prepare<string, {count: number}>('SELECT COUNT(*) as count FROM books WHERE author = ?')
+      .prepare<string, {count: number}>('SELECT COUNT(*) as count FROM books WHERE sortAuthor = ?')
       .get(author);
 
     const books: BookRecord[] = this.db
-      .prepare<string[], BookRecord>('SELECT * FROM books WHERE author = ? ORDER BY title LIMIT ? OFFSET ?')
+      .prepare<string[], BookRecord>('SELECT * FROM books WHERE sortAuthor = ? ORDER BY title LIMIT ? OFFSET ?')
       .all(author, perPage.toString(), ((page - 1) * perPage).toString());
     return {
       count: booksCount?.count || 0,
@@ -334,23 +376,23 @@ export class Indexer {
 
   getTitleFirstLetters() {
     return this.db
-      .prepare<unknown[], { letter: string }>('SELECT DISTINCT SUBSTR(title, 1, 1) AS letter FROM books WHERE title IS NOT NULL ORDER BY letter')
+      .prepare<unknown[], { letter: string }>('SELECT DISTINCT SUBSTR(title, 1, 1) AS letter FROM books WHERE title IS NOT NULL GROUP BY relpath ORDER BY letter')
       .all();
   }
 
   getTitleThreeLetters(firstLetter: string) {
     return this.db
-        .prepare<unknown[], { letter: string }>('SELECT DISTINCT SUBSTR(title, 1, 3) AS letter FROM books WHERE title LIKE ? ORDER BY letter')
+        .prepare<unknown[], { letter: string }>('SELECT DISTINCT SUBSTR(title, 1, 3) AS letter FROM books WHERE title LIKE ? GROUP BY relpath ORDER BY letter')
         .all(firstLetter + '%');
   }
 
   getBooksByTitle(firstLetter: string, page: number, perPage: number) {
     const booksCount = this.db
-      .prepare<string, {count: number}>('SELECT COUNT(*) as count FROM books WHERE title LIKE ?')
+      .prepare<string, {count: number}>('SELECT COUNT(*) as count FROM books WHERE title LIKE ? GROUP BY relpath')
       .get(firstLetter + '%');
 
     const books: BookRecord[] = this.db
-      .prepare<string[], BookRecord>('SELECT * FROM books WHERE title LIKE ? ORDER BY title LIMIT ? OFFSET ?')
+      .prepare<string[], BookRecord>('SELECT * FROM books WHERE title LIKE ? GROUP BY relpath ORDER BY title LIMIT ? OFFSET ?')
       .all(firstLetter + '%', perPage.toString(), ((page - 1) * perPage).toString());
     return {
       count: booksCount?.count || 0, books: books
