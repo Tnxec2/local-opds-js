@@ -11,7 +11,7 @@ import { dirname } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-import { buildMainFeed, buildFolderFeed, buildAuthorFeed, buildTitleFeed } from './opds/opds.js';
+import { buildMainFeed, buildFolderFeed, buildAuthorFeed, buildTitleFeed, buildByAuthorFeed } from './opds/opds.js';
 
 import { Indexer } from './indexer/indexer.js';
 import { FB2ToEPUBConverter } from './converter/fb2toepub.js';
@@ -227,9 +227,9 @@ async function getOpdsFeed(
       case 'author':
         getAuthorFeed(relPath, page, perPage, format, req, res);
         return;
-      // case 'language':
-      //   getLanguageFeed(relPath, page, perPage, format, req, res);
-      //   return;
+      case 'byauthor':
+        getByAuthorFeed(relPath, page, perPage, format, req, res);
+        return;
       case 'folder': 
         getFolderFeed(relPath, page, perPage, format, req, res);
         return;
@@ -302,6 +302,25 @@ async function getAuthorFeed(
   req: express.Request, 
   res: express.Response) {
   const xml = await buildAuthorFeed(
+        app.locals.indexer,
+        BASE_DIR, 
+        `${req.protocol}://${req.get('host')}`, 
+        relPath, 
+        page, 
+        perPage, 
+        format);
+  res.set('Content-Type', 'application/atom+xml; charset=utf-8');
+  res.send(xml);
+}
+
+async function getByAuthorFeed(
+  relPath: string, 
+  page: number, 
+  perPage: number, 
+  format: 'x4' | 'x3' | '' = '', 
+  req: express.Request, 
+  res: express.Response) {
+  const xml = await buildByAuthorFeed(
         app.locals.indexer,
         BASE_DIR, 
         `${req.protocol}://${req.get('host')}`, 

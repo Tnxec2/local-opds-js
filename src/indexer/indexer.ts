@@ -360,13 +360,28 @@ export class Indexer {
     return { count: count?.count || 0, authors: authors.map(a => a.author)}
   }
 
-  getBooksByAuthor(author: string, page: number, perPage: number) {
+  getBooksBySortAuthor(author: string, page: number, perPage: number) {
     const booksCount = this.db
       .prepare<string, {count: number}>('SELECT COUNT(*) as count FROM books WHERE sortAuthor = ?')
       .get(author);
 
     const books: BookRecord[] = this.db
       .prepare<string[], BookRecord>('SELECT * FROM books WHERE sortAuthor = ? ORDER BY title LIMIT ? OFFSET ?')
+      .all(author, perPage.toString(), ((page - 1) * perPage).toString());
+    return {
+      count: booksCount?.count || 0,
+      books: books
+    }
+  }
+
+
+  getBooksByAuthor(author: string, page: number, perPage: number) {
+    const booksCount = this.db
+      .prepare<string, {count: number}>('SELECT COUNT(DISTINCT relpath) as count FROM books WHERE author = ?')
+      .get(author);
+
+    const books: BookRecord[] = this.db
+      .prepare<string[], BookRecord>('SELECT * FROM books WHERE author = ? GROUP BY relpath ORDER BY title LIMIT ? OFFSET ?')
       .all(author, perPage.toString(), ((page - 1) * perPage).toString());
     return {
       count: booksCount?.count || 0,
@@ -388,7 +403,7 @@ export class Indexer {
 
   getBooksByTitle(firstLetter: string, page: number, perPage: number) {
     const booksCount = this.db
-      .prepare<string, {count: number}>('SELECT COUNT(*) as count FROM books WHERE title LIKE ? GROUP BY relpath')
+      .prepare<string, {count: number}>('SELECT COUNT(DISTINCT relpath) as count FROM books WHERE title LIKE ?')
       .get(firstLetter + '%');
 
     const books: BookRecord[] = this.db
@@ -405,6 +420,10 @@ export class Indexer {
 
   saveScanPath(path: string) {
     this.db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(SCAN_PATH, path);
+  }
+
+  getBook(id: number) {
+    return this.db.prepare<number, BookRecord>('SELECT * FROM books WHERE id = ?').get(id);
   }
 }
 

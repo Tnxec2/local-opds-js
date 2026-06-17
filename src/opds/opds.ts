@@ -11,15 +11,16 @@ type SubsectionLink = {
   type?: string;
   rel?: string;
   href: string;
+  title: string;
 }
 
 
-function getSubseciton(href: string): SubsectionLink {
-  return { type: "application/atom+xml;profile=opds-catalog", rel: 'subsection', href: href }
+function getSubseciton(href: string, title: string = 'subsection'): SubsectionLink {
+  return { type: "application/atom+xml;profile=opds-catalog", rel: 'subsection', href: href, title: title }
 }
 
-function addFeedLink(feed: XMLBuilder, href: string, rel: string) {
-  feed.ele('link', { rel: rel, href: href, type: 'type="application/atom+xml;profile=opds-catalog"' }).up();
+function addFeedLink(feed: XMLBuilder, href: string, rel: string, title?: string) {
+  feed.ele('link', { rel: rel, href: href, type: 'type="application/atom+xml;profile=opds-catalog"', title: title}).up();
 }
 
 function feedIdForPath(relPath: string) {
@@ -96,7 +97,7 @@ function addEntry(feed: XMLBuilder, baseUrl: string, relPath: string, format: 'x
   entry.up();
 }
 
-async function addFileEntry(feed: XMLBuilder, baseUrl: string, format: 'x4' | 'x3' | '', b: BookRecord) {
+async function addFileEntry(feed: XMLBuilder, baseUrl: string, format: 'x4' | 'x3' | '', b: BookRecord, showByAuthorLink: boolean) {
   const entry = feed.ele('entry');
   // remove filename from b.relpath
   b.relpath = b.relpath.replace(b.filename, '').replace(/\/$/, '');
@@ -104,7 +105,19 @@ async function addFileEntry(feed: XMLBuilder, baseUrl: string, format: 'x4' | 'x
   entry.ele('id').txt(`${feedIdForPath(b.relpath)}:${b.id}`);
   entry.ele('title').txt(b.title || b.filename);
   entry.ele('author').txt(b.author || 'unknown');
+      
+  if (showByAuthorLink) {
+    const href = `${baseUrl.replace(/\/$/, '')}/${format}opds/byauthor/${encodeURIComponent(b.author)}`
+    entry.ele('link', {
+      href: href, 
+      rel: 'related', 
+      type: 'application/atom+xml',
+      title: 'By Author: ' + b.author
+    });
+  }
+  
   await addFileLink(entry, baseUrl, b.relpath, format, b.filename)
+
   entry.up();
 }
 
@@ -134,7 +147,7 @@ async function addFileLink(entry: XMLBuilder, baseUrl: string, relPath: string, 
           rel: 'http://opds-spec.org/acquisition/open-access',
           href: convertHref,
           type: 'application/epub+zip'
-        }).up();
+        });
       }
     } else if (fileName.toLowerCase().endsWith('.epub')) {
       const basePath = `${baseUrl.replace(/\/$/, '')}/${format}convert/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}`
@@ -144,7 +157,7 @@ async function addFileLink(entry: XMLBuilder, baseUrl: string, relPath: string, 
         rel: 'http://opds-spec.org/acquisition/open-access',
         href: convertHref,
         type: 'application/epub+zip'
-      }).up();
+      });
     }
   } else {
     const type = getMimeType(fileName);
@@ -220,7 +233,7 @@ async function buildAuthorFeed(
     return feed.end({ prettyPrint: true });
   } else if (pathSegments.length === 1 && pathSegments[0].length === 1) {
     const firstLetter = pathSegments[0];
-    
+
     const authors = indexer.getAuthors(firstLetter, page, perPage);
 
     const feed = create({ version: '1.0', encoding: 'utf-8' }).ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
@@ -241,8 +254,7 @@ async function buildAuthorFeed(
     return feed.end({ prettyPrint: true });
   } else {
     const author = pathSegments[0];
-    const books = indexer.getBooksByAuthor(author, page, perPage);
-
+    const books = indexer.getBooksBySortAuthor(author, page, perPage);
 
     const feed = create({ version: '1.0', encoding: 'utf-8' })
       .ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
@@ -257,7 +269,7 @@ async function buildAuthorFeed(
     addFeedLink(feed, upHref, 'up');
 
     books.books.forEach((b: BookRecord) => {
-      addFileEntry(feed, baseUrl, format, b);
+      addFileEntry(feed, baseUrl, format, b, true);
     });
 
     const _path = `${baseUrl.replace(/\/$/, '')}/${format}opds/author/${encodeURIComponent(author)}`;
@@ -266,7 +278,6 @@ async function buildAuthorFeed(
     return feed.end({ prettyPrint: true });
   }
 }
-
 
 async function buildTitleFeed(
   indexer: Indexer,
@@ -339,7 +350,7 @@ async function buildTitleFeed(
     addFeedLink(feed, upHref, 'up');
 
     books.books.forEach((b: BookRecord) => {
-      addFileEntry(feed, baseUrl, format, b);
+      addFileEntry(feed, baseUrl, format, b, true);
     });
 
     const _path = `${baseUrl.replace(/\/$/, '')}/${format}opds/title/${encodeURIComponent(firstLetter)}`;
@@ -348,6 +359,63 @@ async function buildTitleFeed(
     return feed.end({ prettyPrint: true });
   }
 }
+
+async function buildByAuthorFeed(
+  indexer: Indexer,
+  baseDir: string,
+  baseUrl: string,
+  relPath: string,
+  page: number = 1,
+  perPage: number = 10,
+  format: 'x4' | 'x3' | '' = ''
+): Promise<string> {
+
+  const pathSegments = relPath ? relPath.split('/').filter(s => s) : [];
+
+  if (pathSegments[0] === 'byauthor') {
+    pathSegments.shift();
+  }
+
+  console.log(`Building books by author feed for perPage: ${perPage}, page: ${page}, format: ${format}, path: ${relPath}`)
+
+  if (pathSegments.length === 0) {
+    const feed = create({ version: '1.0', encoding: 'utf-8' }).ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
+    feed.ele('title').txt(`Local OPDS (Books By Author)`);
+    feed.ele('id').txt(feedIdForPath(relPath));
+    feed.ele('updated').txt(new Date().toISOString());
+    // return fehler "Authorname nicht vorhanden"
+    feed.ele('entry')
+      .ele('title').txt('Authors').up()
+      .ele('link', getSubseciton(`${baseUrl.replace(/\/$/, '')}/${format}opds/author`)).up()
+      .up();
+    
+    feed.ele('entry')
+      .ele('title').txt('Author name not given').up()
+    return feed.end({ prettyPrint: true });
+  }
+
+  const author = pathSegments[0]
+  const books = indexer.getBooksByAuthor(author, page, perPage);
+
+  const feed = create({ version: '1.0', encoding: 'utf-8' })
+    .ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
+  feed.ele('title').txt(`Local OPDS (Books by Author): ${author}, books: ${books.count}${page && books.count / perPage > 1 ? `, (Page ${page})` : ''}`);
+  feed.ele('id').txt(feedIdForPath(relPath));
+  feed.ele('updated').txt(new Date().toISOString());
+
+  const selfHref = `${baseUrl.replace(/\/$/, '')}/${format}opds/byauthor/${encodeURIComponent(author)}?page=${page}&per_page=${perPage}`;
+  addFeedLink(feed, selfHref, 'self');
+
+  books.books.forEach((b: BookRecord) => {
+    addFileEntry(feed, baseUrl, format, b, false);
+  });
+
+  const _path = `${baseUrl.replace(/\/$/, '')}/${format}opds/byauthor/${encodeURIComponent(author)}`;
+  addPagination(feed, _path, page, perPage, books.count);
+
+  return feed.end({ prettyPrint: true });
+}
+
 
 async function buildFolderFeed(
   baseDir: string,
@@ -441,4 +509,4 @@ async function addDirectory(entry: XMLBuilder, baseUrl: string, format: 'x4' | '
   entry.ele('content').txt(`directory (${fileCount} files)`);
 }
 
-export { buildMainFeed, buildFolderFeed, buildAuthorFeed, buildTitleFeed };
+export { buildMainFeed, buildFolderFeed, buildAuthorFeed, buildTitleFeed, buildByAuthorFeed };
