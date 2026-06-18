@@ -3,6 +3,8 @@ function qs(sel){ return document.querySelector(sel); }
 const form = qs('#fetchForm');
 const result = qs('#result');
 const select_catalog_list = qs('#catalog-list');
+const delete_catalog_item = qs('#delete-catalog-item');
+
 
 
 const STORAGE_KEY_SUBMIT_FORM = 'opds_reader_js_submit_form';
@@ -48,7 +50,19 @@ select_catalog_list.addEventListener('click', async (e) => {
     qs('#password').value = s.password;
     
 });
+
+delete_catalog_item.addEventListener('click', async (e) => {
     
+    const s = JSON.parse(select_catalog_list.value);
+    if (window.confirm('Would you like to delete ' + s.url + '?')) {
+        catalogList = catalogList.filter(c => c.url !== s.url);
+        localStorage.setItem(STORAGE_KEY_CATALOG_LIST, JSON.stringify(catalogList));
+        updateCatalogList();
+        qs('#url').value = '';
+        qs('#username').value = '';
+        qs('#password').value = '';
+    }
+});    
 
 function escapeHtml(s){
   return String(s)

@@ -132,3 +132,7 @@ pre {
   background-color: rgb(255, 87, 87);
   color: #fff;
 }
+#delete-catalog-item {
+  background-color: rgb(248, 53, 53);
+  color: #fff;
+}
