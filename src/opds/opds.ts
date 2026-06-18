@@ -103,7 +103,7 @@ async function addFileEntry(feed: XMLBuilder, baseUrl: string, format: 'x4' | 'x
   b.relpath = b.relpath.replace(b.filename, '').replace(/\/$/, '');
 
   entry.ele('id').txt(`${feedIdForPath(b.relpath)}:${b.id}`);
-  entry.ele('title').txt(b.title ? `${b.title} (${b.filename})` : b.filename);
+  entry.ele('title').txt(b.title ? `${b.title} (${b.filename.replace(b.title, '%%')})` : b.filename);
   entry.ele('author').txt(b.author || 'unknown');
       
   if (showByAuthorLink) {
