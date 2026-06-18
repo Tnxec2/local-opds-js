@@ -23,6 +23,15 @@ export type BookRecord = {
   cover?: string | null; // base64 data url
 }
 
+export type Page<T> = {
+  data: T[];
+  page: {
+    page: number,
+    perPage: number,
+    total: number,
+  }
+}
+
 export class Indexer {
   db: BetterSqlite3;
   dbPath: string;
@@ -352,15 +361,21 @@ export class Indexer {
       .all();
   }
 
-  getAuthors(firstLetter: string, page: number, perPage: number): { count: number, authors: string[]}  {
+  getAuthors(firstLetter: string, page: number, perPage: number): Page<string>  {
     const count = this.db.prepare<string, {count: number}>('SELECT COUNT(DISTINCT sortAuthor) as count FROM books WHERE sortAuthor LIKE ?')
         .get(firstLetter + '%')
     const authors = this.db.prepare<string[], { author: string }>('SELECT DISTINCT sortAuthor as author FROM books WHERE sortAuthor LIKE ? ORDER BY sortAuthor LIMIT ? OFFSET ?')
             .all(firstLetter + '%', perPage.toString(), ((page - 1) * perPage).toString())
-    return { count: count?.count || 0, authors: authors.map(a => a.author)}
+    return { data: authors.map(a => a.author),
+      page: {
+        page: page,
+        perPage: perPage,
+        total: count?.count || 0,
+      }
+    }
   }
 
-  getBooksBySortAuthor(author: string, page: number, perPage: number) {
+  getBooksBySortAuthor(author: string, page: number, perPage: number): Page<BookRecord> {
     const booksCount = this.db
       .prepare<string, {count: number}>('SELECT COUNT(*) as count FROM books WHERE sortAuthor = ?')
       .get(author);
@@ -369,13 +384,17 @@ export class Indexer {
       .prepare<string[], BookRecord>('SELECT * FROM books WHERE sortAuthor = ? ORDER BY title LIMIT ? OFFSET ?')
       .all(author, perPage.toString(), ((page - 1) * perPage).toString());
     return {
-      count: booksCount?.count || 0,
-      books: books
+      data: books,
+      page: {
+        page: page,
+        perPage: perPage,
+        total: booksCount?.count || 0,
+      }
     }
   }
 
 
-  getBooksByAuthor(author: string, page: number, perPage: number) {
+  getBooksByAuthor(author: string, page: number, perPage: number): Page<BookRecord> {
     const booksCount = this.db
       .prepare<string, {count: number}>('SELECT COUNT(DISTINCT relpath) as count FROM books WHERE author = ?')
       .get(author);
@@ -384,8 +403,12 @@ export class Indexer {
       .prepare<string[], BookRecord>('SELECT * FROM books WHERE author = ? GROUP BY relpath ORDER BY title LIMIT ? OFFSET ?')
       .all(author, perPage.toString(), ((page - 1) * perPage).toString());
     return {
-      count: booksCount?.count || 0,
-      books: books
+      data: books,
+      page: {
+        page: page,
+        perPage: perPage,
+        total: booksCount?.count || 0,
+      }
     }
   }
 
@@ -401,7 +424,7 @@ export class Indexer {
         .all(firstLetter + '%');
   }
 
-  getBooksByTitle(firstLetter: string, page: number, perPage: number) {
+  getBooksByTitle(firstLetter: string, page: number, perPage: number): Page<BookRecord> {
     const booksCount = this.db
       .prepare<string, {count: number}>('SELECT COUNT(DISTINCT relpath) as count FROM books WHERE title LIKE ?')
       .get(firstLetter + '%');
@@ -410,7 +433,12 @@ export class Indexer {
       .prepare<string[], BookRecord>('SELECT * FROM books WHERE title LIKE ? GROUP BY relpath ORDER BY title LIMIT ? OFFSET ?')
       .all(firstLetter + '%', perPage.toString(), ((page - 1) * perPage).toString());
     return {
-      count: booksCount?.count || 0, books: books
+      data: books,
+      page: {
+        page: page,
+        perPage: perPage,
+        total: booksCount?.count || 0,
+      }
     }
   }
 

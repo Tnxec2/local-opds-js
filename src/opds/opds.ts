@@ -237,19 +237,19 @@ async function buildAuthorFeed(
     const authors = indexer.getAuthors(firstLetter, page, perPage);
 
     const feed = create({ version: '1.0', encoding: 'utf-8' }).ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
-    feed.ele('title').txt(`Local OPDS (Authors): ${firstLetter} ${page && (authors.count) / perPage > 1 ? ` (Page ${page})` : ''}`);
+    feed.ele('title').txt(`Local OPDS (Authors): ${firstLetter} ${page && (authors.page.total / perPage) > 1 ? ` (Page ${page})` : ''}`);
     feed.ele('id').txt(feedIdForPath(relPath));
     feed.ele('updated').txt(new Date().toISOString());
 
     const selfHref = `${baseUrl.replace(/\/$/, '')}/${format}opds/author/${encodeURIComponent(firstLetter)}?page=${page}&per_page=${perPage}`;
     addFeedLink(feed, selfHref, 'self');
 
-    authors.authors.forEach((a) => {
+    authors.data.forEach((a) => {
       addEntry(feed, baseUrl, relPath, format, 'author', a);
     });
 
     const _path = `${baseUrl.replace(/\/$/, '')}/${format}opds/author/${encodeURIComponent(firstLetter)}`;
-    addPagination(feed, _path, page, perPage, authors.count);
+    addPagination(feed, _path, page, perPage, authors.page.total);
 
     return feed.end({ prettyPrint: true });
   } else {
@@ -258,7 +258,7 @@ async function buildAuthorFeed(
 
     const feed = create({ version: '1.0', encoding: 'utf-8' })
       .ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
-    feed.ele('title').txt(`Local OPDS (Authors): ${author} ${page && books.count / perPage > 1 ? ` (Page ${page})` : ''}`);
+    feed.ele('title').txt(`Local OPDS (Authors): ${author} ${page && books.page.total / perPage > 1 ? ` (Page ${page})` : ''}`);
     feed.ele('id').txt(feedIdForPath(relPath));
     feed.ele('updated').txt(new Date().toISOString());
 
@@ -268,12 +268,12 @@ async function buildAuthorFeed(
     const upHref = `${baseUrl.replace(/\/$/, '')}/${format}opds/author`;
     addFeedLink(feed, upHref, 'up');
 
-    books.books.forEach((b: BookRecord) => {
+    books.data.forEach((b: BookRecord) => {
       addFileEntry(feed, baseUrl, format, b, true);
     });
 
     const _path = `${baseUrl.replace(/\/$/, '')}/${format}opds/author/${encodeURIComponent(author)}`;
-    addPagination(feed, _path, page, perPage, books.count);
+    addPagination(feed, _path, page, perPage, books.page.total);
 
     return feed.end({ prettyPrint: true });
   }
@@ -339,7 +339,7 @@ async function buildTitleFeed(
     const books = indexer.getBooksByTitle(firstLetter, page, perPage);
 
     const feed = create({ version: '1.0', encoding: 'utf-8' }).ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
-    feed.ele('title').txt(`Local OPDS (Titles): ${firstLetter} ${page && books.count / perPage > 1 ? ` (Page ${page})` : ''}`);
+    feed.ele('title').txt(`Local OPDS (Titles): ${firstLetter} ${page && books.page.total / perPage > 1 ? ` (Page ${page})` : ''}`);
     feed.ele('id').txt(feedIdForPath(relPath));
     feed.ele('updated').txt(new Date().toISOString());
 
@@ -349,12 +349,12 @@ async function buildTitleFeed(
     const upHref = `${baseUrl.replace(/\/$/, '')}/${format}opds/title/${encodeURIComponent(firstLetter).slice(0, 1)}`;
     addFeedLink(feed, upHref, 'up');
 
-    books.books.forEach((b: BookRecord) => {
+    books.data.forEach((b: BookRecord) => {
       addFileEntry(feed, baseUrl, format, b, true);
     });
 
     const _path = `${baseUrl.replace(/\/$/, '')}/${format}opds/title/${encodeURIComponent(firstLetter)}`;
-    addPagination(feed, _path, page, perPage, books.count);
+    addPagination(feed, _path, page, perPage, books.page.total);
 
     return feed.end({ prettyPrint: true });
   }
@@ -399,19 +399,19 @@ async function buildByAuthorFeed(
 
   const feed = create({ version: '1.0', encoding: 'utf-8' })
     .ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
-  feed.ele('title').txt(`Local OPDS (Books by Author): ${author}, books: ${books.count}${page && books.count / perPage > 1 ? `, (Page ${page})` : ''}`);
+  feed.ele('title').txt(`Local OPDS (Books by Author): ${author}, books: ${books.page.total}${page && books.page.total / perPage > 1 ? `, (Page ${page})` : ''}`);
   feed.ele('id').txt(feedIdForPath(relPath));
   feed.ele('updated').txt(new Date().toISOString());
 
   const selfHref = `${baseUrl.replace(/\/$/, '')}/${format}opds/byauthor/${encodeURIComponent(author)}?page=${page}&per_page=${perPage}`;
   addFeedLink(feed, selfHref, 'self');
 
-  books.books.forEach((b: BookRecord) => {
+  books.data.forEach((b: BookRecord) => {
     addFileEntry(feed, baseUrl, format, b, false);
   });
 
   const _path = `${baseUrl.replace(/\/$/, '')}/${format}opds/byauthor/${encodeURIComponent(author)}`;
-  addPagination(feed, _path, page, perPage, books.count);
+  addPagination(feed, _path, page, perPage, books.page.total);
 
   return feed.end({ prettyPrint: true });
 }
