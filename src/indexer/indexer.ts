@@ -197,8 +197,6 @@ export class Indexer {
         }
       } else if (ext.endsWith('.fb2')) {
         try {
-          const format = ext.endsWith('.x3.fb2') ? 'x3' : ext.endsWith('.x4.fb2') ? 'x4' : '';
-
           const meta = await this._parseFb2(full);
           const st = await fs.stat(full);
           const rec: BookRecord = {
@@ -221,9 +219,6 @@ export class Indexer {
         }
     } else if (ext.endsWith('.fb2.zip')) {
         try {
-          
-          const format = ext.endsWith('.x3.fb2.zip') ? 'x3' : ext.endsWith('.x4.fb2.zip') ? 'x4' : '';
-
           const meta = await this._parseFb2(full);
           const st = await fs.stat(full);
           const rec: BookRecord = {
@@ -432,6 +427,7 @@ export class Indexer {
     const books: BookRecord[] = this.db
       .prepare<string[], BookRecord>('SELECT * FROM books WHERE title LIKE ? GROUP BY relpath ORDER BY title LIMIT ? OFFSET ?')
       .all(firstLetter + '%', perPage.toString(), ((page - 1) * perPage).toString());
+        
     return {
       data: books,
       page: {
