@@ -103,7 +103,7 @@ async function addFileEntry(feed: XMLBuilder, baseUrl: string, format: 'x4' | 'x
   b.relpath = b.relpath.replace(b.filename, '').replace(/\/$/, '');
 
   entry.ele('id').txt(`${feedIdForPath(b.relpath)}:${b.id}`);
-  entry.ele('title').txt(b.title || b.filename);
+  entry.ele('title').txt(b.title ? `${b.title} (${b.filename})` : b.filename);
   entry.ele('author').txt(b.author || 'unknown');
       
   if (showByAuthorLink) {
@@ -135,20 +135,15 @@ async function addFileLink(entry: XMLBuilder, baseUrl: string, relPath: string, 
   if (format === 'x3' || format === 'x4') {
     // on fb2 or fb2.zip files, add link for fb2.epub or fb2.zip.epub if this file not exists yet
     if (fileName.toLowerCase().endsWith('.fb2') || fileName.toLowerCase().endsWith('.fb2.zip')) {
-      const epubSimpleName = fileName.toLowerCase().endsWith('.fb2') ? fileName.replace('.fb2', 'epub') : fileName.replace('.fb2.zip', 'epub');
-      try {
-        await fs.stat(path.join(baseUrl, relPath, epubSimpleName));
-      } catch (err) {
-        const epubConvertName = fileName + '.epub';
-        const basePath = `${baseUrl.replace(/\/$/, '')}/${format}convert/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}`
-        const convertHref = `${basePath}${encodeURIComponent(epubConvertName)}`;
-        entry.ele('link', {
-          title: 'Convert to Xteink ePub',
-          rel: 'http://opds-spec.org/acquisition/open-access',
-          href: convertHref,
-          type: 'application/epub+zip'
-        });
-      }
+      const epubConvertName = fileName + '.epub';
+      const basePath = `${baseUrl.replace(/\/$/, '')}/${format}convert/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}`
+      const convertHref = `${basePath}${encodeURIComponent(epubConvertName)}`;
+      entry.ele('link', {
+        title: 'Convert to Xteink ePub',
+        rel: 'http://opds-spec.org/acquisition/open-access',
+        href: convertHref,
+        type: 'application/epub+zip'
+      });
     } else if (fileName.toLowerCase().endsWith('.epub')) {
       const basePath = `${baseUrl.replace(/\/$/, '')}/${format}convert/${relPath ? relPath.split(path.sep).map(encodeURIComponent).join('/') + '/' : ''}`
       const convertHref = `${basePath}${encodeURIComponent(fileName)}.epub`;
