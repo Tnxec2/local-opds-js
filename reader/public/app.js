@@ -280,7 +280,6 @@ async function fetchOpds(href){
 
     console.log('hrefOrigin', hrefOrigin);
     
-
     const username = qs('#username').value.trim();
     const password = qs('#password').value;
     const searchField = qs('#search').value.trim().toLowerCase();
@@ -316,7 +315,9 @@ async function fetchOpds(href){
         attachLinkHandler();
         urlStack.push(fetchHref);
     } catch (err) {
-        result.innerHTML = `<pre class="error">${escapeHtml(err.message)}</pre>`;
+        result.innerHTML = `<pre class="error">${escapeHtml(err.message)}</pre>
+        <button type="button" class="retry" onclick="fetchOpds('${href}')">Retry</button>
+        `;
     }
 }
 
