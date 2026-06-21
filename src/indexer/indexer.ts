@@ -451,7 +451,7 @@ export class Indexer {
   }
 
   getBooksCount() {
-    return this.db.prepare<undefined[], {count: number}>('SELECT COUNT(DISTINCT rePath) as count FROM books').get() || {count: 0};
+    return this.db.prepare<undefined[], {count: number}>('SELECT COUNT(DISTINCT relPath) as count FROM books').get() || {count: 0};
   }
 }
 
