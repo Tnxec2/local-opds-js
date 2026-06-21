@@ -41,6 +41,13 @@ The page can be specified as follows:
 
 `http://localhost:3000/opds?page=10&per_page=15`
 
+For start reindex of eBooks or show rescan status:
+
+`http://localhost:3000/rescan`
+
+`http://localhost:3000/status`
+
+
 For Xteink opds links are:
 
 `http://localhost:3000/x4opds`
