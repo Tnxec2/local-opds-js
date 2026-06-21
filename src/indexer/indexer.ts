@@ -45,8 +45,8 @@ export class Indexer {
     this.db = new Database(dbPath);
     this.prepareTables();
     this.isScaning = false;
-    const countBooks = this.db.prepare<unknown[], {count: number}>('SELECT COUNT(*) as count FROM books').get();
-    this.countBooks = countBooks?.count || 0;
+    const countBooks = this.getBooksCount();
+    this.countBooks = countBooks.count;
     // perform an initial scan in background only if DB is empty
       
     if (this.countBooks === 0) {
@@ -448,6 +448,10 @@ export class Indexer {
 
   getBook(id: number) {
     return this.db.prepare<number, BookRecord>('SELECT * FROM books WHERE id = ?').get(id);
+  }
+
+  getBooksCount() {
+    return this.db.prepare<undefined[], {count: number}>('SELECT COUNT(DISTINCT rePath) as count FROM books').get() || {count: 0};
   }
 }
 
