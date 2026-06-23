@@ -434,6 +434,6 @@ ensureBaseDir()
 
 
 // TODO: es soll convertierung ins X4 und X3 korrigiert werden:
-// - es gibt noch ungereimheiten beim konvertieren von epub to xteink-epub
-// - in feed nur fb2 und epub anzeigen, bei X4opds oder X3opds sollen "Convert" Links übergeben werden
-// - konvertierte files sollen nicht zwischengespeichert werden -> immer neu konvertieren und direkt ausgeben 
+// - FB2toEpub converter: andere Formatierungen implementieren
+// - opds/folder:  title/author aus der DB anzeigen
+// - indexer/rescan: Teilsynchronisation - Eingabe von Unterordner - kein Löschen von gesamt DB, nur Update oder Insert neue Bücher

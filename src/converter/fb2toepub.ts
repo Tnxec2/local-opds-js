@@ -141,7 +141,7 @@ export class FB2ToEPUBConverter {
             // Annotation
             const annotationElem = titleInfo && titleInfo.getElementsByTagName("annotation")[0];
             if (annotationElem) {
-                this.bookMetadata.annotation = serializeInline(annotationElem, {})
+                this.bookMetadata.annotation = serializeSectionToXHTML(annotationElem, {})
             }
 
             // Date (optional)
@@ -252,19 +252,24 @@ export class FB2ToEPUBConverter {
                 
                 const chapTitle = titleNode
                     ? textContentDeep(titleNode).trim()
-                    : "";
+                    : null;
                 const htmlContent = serializeSectionToXHTML(
                     section,
                     binaries,
                 );
                 
-                chapters.push({
-                    fb2Id: fb2Id,
-                    id: `ch${chapterIndex}`,
-                    title: chapTitle,
-                    content: htmlContent,
-                });
-                chapterIndex++;
+                if (chapTitle) { 
+                    chapters.push({
+                        fb2Id: fb2Id,
+                        id: `ch${chapterIndex}`,
+                        title: chapTitle,
+                        content: htmlContent,
+                    });
+                    chapterIndex++;
+                } else {
+                    const lastIndex = chapters.length-1
+                    chapters[lastIndex].content = chapters[lastIndex].content + "<p></p>" + htmlContent;
+                }
             }
 
             if (bodies.length) {
@@ -325,7 +330,7 @@ export class FB2ToEPUBConverter {
                     fb2Id: null,
                     id: 'coverpage',
                     title: 'Cover',
-                    content: `<img alt="cover" src="images/${this.bookMetadata.coverId}" />`,
+                    content: `<div><img alt="cover" src="images/${this.bookMetadata.coverId}" /></div>`,
                 });
             }
 
@@ -355,11 +360,11 @@ export class FB2ToEPUBConverter {
             // Write chapter files
             const lang = (this.bookMetadata.language || "en").toLowerCase();
             const manifestItems: ManifestItem[] = [
-                {
-                    id: "css",
-                    href: "styles.css",
-                    mediaType: "text/css",
-                },
+                // {
+                //     id: "css",
+                //     href: "styles.css",
+                //     mediaType: "text/css",
+                // },
             ];
             const spineItemrefs: SpineItemref[] = [];
 
@@ -481,6 +486,22 @@ export class FB2ToEPUBConverter {
                 mediaType: "application/xhtml+xml",
                 properties: "nav",
             });
+            spineItemrefs.push({
+                idref: 'nav'
+            })
+
+            // toc.ncx (EPUB 2)
+            const tocNcx = EPUB.buildTocNCX(
+                this.bookMetadata.title || "Untitled",
+                chapters,
+                lang
+            )
+            oebps?.file("toc.ncx", tocNcx);
+            manifestItems.push({
+                id: "ncx",
+                href: "toc.ncx",
+                mediaType: "application/x-dtbncx+xml",
+            })
 
             // content.opf
             const uniqueId = "urn:uuid:" + generateUUIDv4();
@@ -649,7 +670,7 @@ function serializeInline(node: any, binaries: any): string {
         case "sup":
             return `<sup>${children}</sup>`;
         case "strikethrough":
-            return `<s>${children}</s>`;
+            return `<del>${children}</del>`;
         case "a": {
             const href = getHref(node);
             const safeHref = href.startsWith("#")
@@ -693,7 +714,7 @@ function serializeSectionToXHTML(section: Element, binaries: any, depth = 1): st
                 .map((p) => serializeInline(p, binaries))
                 .join(" ")
             : escapeXML(textContentDeep(titleNode).trim());
-        html += `<h${d}>${t.replace(/[\r\n]/g, "<br>").replace(/\s+/g, " ")}</h${d}>`;
+        html += `<h${d}>${t.replace(/[\r\n]/g, "<br />").replace(/\s+/g, " ")}</h${d}>`;
     }
 
     for (const node of nodes) {
@@ -708,13 +729,13 @@ function serializeSectionToXHTML(section: Element, binaries: any, depth = 1): st
         } else if (tag === "epigraph") {
             const inner = [...node.getElementsByTagName("p")]
                 .map((p) => serializeInline(p, binaries))
-                .join("<br>");
-            html += `<blockquote>${inner}</blockquote>`;
+                .join("<br />");
+            html += `<blockquote><p>${inner}</p></blockquote>`;
         } else if (tag === "cite") {
             const inner = [...node.children]
                 .map((n) => serializeInline(n, binaries))
-                .join("<br>");
-            html += `<blockquote>${inner}</blockquote>`;
+                .join("<br />");
+            html += `<blockquote><p>${inner}</p></blockquote>`;
         } else if (tag === "poem") {
             html += `<div class="poem">`;
             const title = node.getElementsByTagName("title")[0];
@@ -736,7 +757,7 @@ function serializeSectionToXHTML(section: Element, binaries: any, depth = 1): st
                 html += `<div class="text-right italic">${serializeInline(author, binaries)}</div>`;
             html += `</div>`;
         } else if (tag === "empty-line") {
-            html += `<br>`;
+            html += `<p></p>`;
         } else if (tag === "image") {
             const href = getHref(node).replace(/^#/, "");
             if (href && binaries[href]) {
