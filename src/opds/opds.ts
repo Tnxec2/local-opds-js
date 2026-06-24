@@ -117,16 +117,26 @@ async function addFileEntry(feed: XMLBuilder, baseUrl: string, format: 'x4' | 'x
   }
   
   await addFileLink(entry, baseUrl, b.relpath, format, b.filename)
-
   entry.up();
 }
 
-async function addFileEntryFromFile(entry: XMLBuilder, baseUrl: string, relPath: string, format: 'x4' | 'x3' | '', e: Dirent<string>) {
+async function addFileEntryFromFile(entry: XMLBuilder, baseUrl: string, relPath: string, format: 'x4' | 'x3' | '', e: Dirent<string>, title?: string, author?: string) {
   // remove filename from b.relpath
   const brelpath = relPath.replace(e.name, '').replace(/\/$/, '');
   const fileStats = await fs.stat(path.join(e.parentPath, e.name));
-  entry.ele('title').txt(e.name || 'unknown');
-  entry.ele('content').txt(`file, size: ${fileStats.size} bytes`);
+  entry.ele('title').txt(title ? `${title} (${e.name.replace(title, '%%')})` : e.name);
+  entry.ele('author').txt(author || 'unknown');
+
+  if (author) {
+    const href = `${baseUrl.replace(/\/$/, '')}/${format}opds/byauthor/${encodeURIComponent(author)}`
+    entry.ele('link', {
+      href: href, 
+      rel: 'related', 
+      type: 'application/atom+xml',
+      title: 'By Author: ' + author
+    });
+  }
+
   await addFileLink(entry, baseUrl, brelpath, format, e.name)
   entry.up();
 }
@@ -413,6 +423,7 @@ async function buildByAuthorFeed(
 
 
 async function buildFolderFeed(
+  indexer: Indexer,
   baseDir: string,
   baseUrl: string,
   origPath: string,
@@ -485,9 +496,10 @@ async function buildFolderFeed(
         entry.up();
         continue;
       }
-    } 
-    await addFileEntryFromFile(entry, baseUrl, relPath, format, e)
-    entry.up();
+    }
+    
+    const booksByPath = indexer.getByRelpath(path.join(relPath, e.name));
+    await addFileEntryFromFile(entry, baseUrl, relPath, format, e, booksByPath?.title, booksByPath?.author);  
   }
 
   const _path = `${baseUrl.replace(/\/$/, '')}/${format}opds/folder${relPath ? '/' + relPath.split(path.sep).map(encodeURIComponent).join('/') : ''}`;

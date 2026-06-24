@@ -265,6 +265,7 @@ async function getFolderFeed(
   req: express.Request, 
   res: express.Response) {
   const xml = await buildFolderFeed(
+        app.locals.indexer,
         BASE_DIR, 
         `${req.protocol}://${req.get('host')}`, 
         relPath, 
@@ -434,6 +435,5 @@ ensureBaseDir()
 
 
 // TODO: es soll convertierung ins X4 und X3 korrigiert werden:
-// - FB2toEpub converter: andere Formatierungen implementieren
 // - opds/folder:  title/author aus der DB anzeigen
 // - indexer/rescan: Teilsynchronisation - Eingabe von Unterordner - kein Löschen von gesamt DB, nur Update oder Insert neue Bücher

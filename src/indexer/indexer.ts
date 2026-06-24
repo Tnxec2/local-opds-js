@@ -347,7 +347,7 @@ export class Indexer {
   }
 
   getByRelpath(relpath: string) {
-    return this.db.prepare(`SELECT * FROM books WHERE relpath = ?`).get(relpath) as BookRecord | undefined;
+    return this.db.prepare<string, BookRecord>(`SELECT * FROM books WHERE relpath = ?`).get(relpath);
   }
 
   getAuthorsFirstLetters(): { letter: string }[] {
