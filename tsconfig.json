@@ -9,6 +9,6 @@
     "rootDir": "src"
   },
   "lib": ["es2015"],
-  "include": ["src/**/*"],
+  "include": ["src/**/*.ts"],
   "exclude": ["test/**/*"]
 }

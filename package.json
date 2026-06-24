@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "prebuild": "rm -rf dist",
-    "build": "tsc -p tsconfig.json; cp -r reader/public dist/",
+    "build": "tsc -p tsconfig.json; cp -r reader/public dist/; cp -r src/assets dist/assets",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "test": "ts-node --transpile-only test/buildfeed.test.ts"
