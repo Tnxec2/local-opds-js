@@ -389,9 +389,9 @@ app.get("/rescan{/*relPath}", async (req, res) => {
 
 app.get("/status", async (req, res) => {
   if (app.locals.indexer.isScaning) {
-    res.json({ status: "scanning", count: app.locals.indexer.countBooks });
+    res.json({ status: "scanning", scanedBooks: app.locals.indexer.scanedBooks, booksInDB: app.locals.indexer.booksInDB });
   } else {
-    res.json({ status: "ready", count: app.locals.indexer.countBooks });
+    res.json({ status: "ready", scanedBooks: app.locals.indexer.scanedBooks, booksInDB: app.locals.indexer.booksInDB });
   }
 });
 

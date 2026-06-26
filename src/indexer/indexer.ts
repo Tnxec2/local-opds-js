@@ -38,7 +38,8 @@ export class Indexer {
   dbPath: string;
   scanPath: string;
   isScaning: boolean = false;
-  countBooks: number;
+  scanedBooks: number = 0;
+  booksInDB: number;
 
   constructor(dbPath: string, scanPath: string) {
     this.dbPath = dbPath;
@@ -46,14 +47,14 @@ export class Indexer {
     this.db = new Database(dbPath);
     this.prepareTables();
     this.isScaning = false;
-    const countBooks = this.getBooksCount();
-    this.countBooks = countBooks.count;
+    
+    this.booksInDB = this.getBooksCount().count;
     // perform an initial scan in background only if DB is empty
       
-    if (this.countBooks === 0) {
+    if (this.booksInDB === 0) {
       this.performScan();
       return;
-    } else if (this.countBooks > 0) {
+    } else if (this.booksInDB > 0) {
       const _scanPath = this.getScanPath();
             
       if (!_scanPath || _scanPath !== scanPath) {
@@ -62,7 +63,7 @@ export class Indexer {
         return;
       }
     }
-    console.log(`Found ${this.countBooks} books in database. Skipping initial scan.\n`)
+    console.log(`Found ${this.booksInDB} books in database. Skipping initial scan.\n`)
   }
 
   performScan() {
@@ -120,12 +121,12 @@ export class Indexer {
   async scanDirectory(baseDir: string, startPath: string) {
     if (this.isScaning) return;
     this.isScaning = true;
-    
+    this.scanedBooks = 0;
     try {
       await this._scanDirectory(baseDir, startPath);
     } finally {
       this.isScaning = false;
-      this.countBooks = this.getBooksCount().count;
+      this.booksInDB = this.getBooksCount().count;
     }
   }
 
@@ -189,6 +190,7 @@ export class Indexer {
             updated: (new Date()).getTime()
           };
           this.variorAuthors(rec);
+          this.scanedBooks++;
         } catch (err) {
           console.error('Failed to index txt', full, err);
         }
@@ -211,6 +213,7 @@ export class Indexer {
             updated: (new Date()).getTime()
           };
           this.variorAuthors(rec);
+          this.scanedBooks++;
         } catch (err) {
           console.error('Failed to index epub', full, err);
         }
@@ -233,6 +236,7 @@ export class Indexer {
             updated: (new Date()).getTime()
           };
           this.variorAuthors(rec);
+          this.scanedBooks++;
         } catch (err) {
           console.error('Failed to index fb2', full, err);
         }
@@ -255,6 +259,7 @@ export class Indexer {
             updated: (new Date()).getTime()
           };
           this.variorAuthors(rec);
+          this.scanedBooks++;
         } catch (err) {
           console.error('Failed to index fb2', full, err);
         }
