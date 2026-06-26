@@ -41,9 +41,17 @@ The page can be specified as follows:
 
 `http://localhost:3000/opds?page=10&per_page=15`
 
-For start reindex of eBooks or show rescan status:
+For start reindex of eBooks or show scan status:
+
+Rescan full database:
 
 `http://localhost:3000/rescan`
+
+Rescan partial from a relativ path:
+
+`http://localhost:3000/rescan/subdir`
+
+Show scan status:
 
 `http://localhost:3000/status`
 

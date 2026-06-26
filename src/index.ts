@@ -377,8 +377,11 @@ app.post("/fetch", async (req, res) => {
   }
 });
 
-app.get("/rescan", async (req, res) => {
-  app.locals.indexer.scanDirectory(BASE_DIR)
+app.get("/rescan{/*relPath}", async (req, res) => {
+  const relPath = req.params.relPath?.join("/") || '';
+  const decodedPath = decodeURIComponent(relPath);
+
+  app.locals.indexer.scanDirectory(BASE_DIR, decodedPath)
     .then(() => console.log('Indexing completed'))
     .catch((err: any) => console.error('Indexing error', err));
   res.json({ status: "rescan started" });
@@ -422,7 +425,8 @@ ensureBaseDir()
       console.log(`Local OPDS server listening on http://localhost:${PORT}/opds`);
       console.log(`Local OPDS server for Xteink X4 listening on http://localhost:${PORT}/x4opds`);
       console.log(`Local OPDS server for Xteink X3listening on http://localhost:${PORT}/x3opds`);
-      console.log(`Rescan endpoint: http://localhost:${PORT}/rescan`);
+      console.log(`Rescan full endpoint: http://localhost:${PORT}/rescan`);
+      console.log(`Rescan from relativ path endpoint: http://localhost:${PORT}/rescan/subdir`);
       console.log(`Status endpoint: http://localhost:${PORT}/status`);
       console.log("------------------------------------------------------------------------------");
       // console.log(`Serving files from ${BASE_DIR} at /files/`);
@@ -431,9 +435,3 @@ ensureBaseDir()
   console.error('Failed to prepare base directory', err);
   process.exit(1);
 });
-
-
-
-// TODO: es soll convertierung ins X4 und X3 korrigiert werden:
-// - opds/folder:  title/author aus der DB anzeigen
-// - indexer/rescan: Teilsynchronisation - Eingabe von Unterordner - kein Löschen von gesamt DB, nur Update oder Insert neue Bücher

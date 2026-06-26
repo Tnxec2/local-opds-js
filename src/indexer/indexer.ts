@@ -21,6 +21,7 @@ export type BookRecord = {
   size?: number;
   mtime?: number;
   cover?: string | null; // base64 data url
+  updated?: number;
 }
 
 export type Page<T> = {
@@ -67,7 +68,7 @@ export class Indexer {
   performScan() {
     console.log('Performing initial scan...')
     this.saveScanPath(this.scanPath);
-    this.scanDirectory(this.scanPath)
+    this.scanDirectory(this.scanPath, '')
       .then(() => console.log('Indexing completed'))
       .catch(err => console.error('Indexing error', err));
   }
@@ -88,12 +89,13 @@ export class Indexer {
         size INTEGER,
         mtime INTEGER,
         cover TEXT,
+        updated INTEGER,
         UNIQUE(relpath, sortAuthor)
       );
     `);
     this.insertStmtBooks = this.db.prepare(`
-      INSERT INTO books (relpath, filename, title, author, sortAuthor, language, publisher, description, ext, size, mtime, cover)
-      VALUES (@relpath, @filename, @title, @author, @sortAuthor, @language, @publisher, @description, @ext, @size, @mtime, @cover)
+      INSERT INTO books (relpath, filename, title, author, sortAuthor, language, publisher, description, ext, size, mtime, cover, updated)
+      VALUES (@relpath, @filename, @title, @author, @sortAuthor, @language, @publisher, @description, @ext, @size, @mtime, @cover, @updated)
       ON CONFLICT(relpath, sortAuthor) DO UPDATE SET
         filename=excluded.filename,
         title=excluded.title,
@@ -104,7 +106,8 @@ export class Indexer {
         ext=excluded.ext,
         size=excluded.size,
         mtime=excluded.mtime,
-        cover=excluded.cover
+        cover=excluded.cover,
+        updated=excluded.updated
     `);
     this.db.exec(`CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
@@ -114,23 +117,36 @@ export class Indexer {
 
   insertStmtBooks: any;
 
-  async scanDirectory(baseDir: string) {
+  async scanDirectory(baseDir: string, startPath: string) {
     if (this.isScaning) return;
     this.isScaning = true;
-    this.countBooks = 0;
+    
     try {
-      await this._scanDirectory(baseDir);
+      await this._scanDirectory(baseDir, startPath);
     } finally {
       this.isScaning = false;
+      this.countBooks = this.getBooksCount().count;
     }
   }
 
-  async _scanDirectory(baseDir: string) {
-    console.log('Scanning directory', baseDir);
+  async _scanDirectory(baseDir: string, startPath: string) {
+    console.log('Scanning directory', baseDir, ' from:', startPath);
     const stats = await fs.stat(baseDir);
     if (!stats.isDirectory()) throw new Error('baseDir is not a directory');
-    this.db.exec('DELETE FROM books');
-    await this._walkAndIndex(baseDir, baseDir);
+    
+    if (startPath === '') {
+      console.log('delete all books');
+      
+      this.db.exec('DELETE FROM books');
+    } else {
+      console.log('delete books with startPath: ' + startPath);
+      const result = this.db.prepare('DELETE FROM books WHERE relPath LIKE ?').run(`${startPath}%`);
+      console.log('count deleted: ', result.changes);
+    }
+
+    const startDir = path.join(baseDir, startPath);
+
+    await this._walkAndIndex(baseDir, startDir);
   }
 
   async _walkAndIndex(root: string, current: string) {
@@ -153,6 +169,8 @@ export class Indexer {
       const rel = path.relative(root, full).split(path.sep).join('/');
       const ext = it.name.toLowerCase();
 
+      // console.log(full);
+      
       if (ext.endsWith('.txt') || ext.endsWith('.md') || ext.endsWith('.html') || ext.endsWith('.htm')) {
         try {
           const st = await fs.stat(full);
@@ -168,6 +186,7 @@ export class Indexer {
             size: st.size,
             mtime: st.mtimeMs,
             cover: null,
+            updated: (new Date()).getTime()
           };
           this.variorAuthors(rec);
         } catch (err) {
@@ -189,9 +208,9 @@ export class Indexer {
             size: st.size,
             mtime: st.mtimeMs,
             cover: meta.cover || null,
+            updated: (new Date()).getTime()
           };
           this.variorAuthors(rec);
-          this.countBooks++;
         } catch (err) {
           console.error('Failed to index epub', full, err);
         }
@@ -211,9 +230,9 @@ export class Indexer {
             size: st.size,
             mtime: st.mtimeMs,
             cover: null,
+            updated: (new Date()).getTime()
           };
           this.variorAuthors(rec);
-          this.countBooks++;
         } catch (err) {
           console.error('Failed to index fb2', full, err);
         }
@@ -233,9 +252,9 @@ export class Indexer {
             size: st.size,
             mtime: st.mtimeMs,
             cover: null,
+            updated: (new Date()).getTime()
           };
           this.variorAuthors(rec);
-          this.countBooks++;
         } catch (err) {
           console.error('Failed to index fb2', full, err);
         }
