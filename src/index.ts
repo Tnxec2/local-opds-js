@@ -11,7 +11,7 @@ import { dirname } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-import { buildMainFeed, buildFolderFeed, buildAuthorFeed, buildTitleFeed, buildByAuthorFeed } from './opds/opds.js';
+import { buildMainFeed, buildFolderFeed, buildAuthorFeed, buildTitleFeed, buildByAuthorFeed, getFeedForRescan } from './opds/opds.js';
 
 import { Indexer } from './indexer/indexer.js';
 import { FB2ToEPUBConverter } from './converter/fb2toepub.js';
@@ -384,7 +384,9 @@ app.get("/rescan{/*relPath}", async (req, res) => {
   app.locals.indexer.scanDirectory(BASE_DIR, decodedPath)
     .then(() => console.log('Indexing completed'))
     .catch((err: any) => console.error('Indexing error', err));
-  res.json({ status: "rescan started" });
+
+  res.send(getFeedForRescan('rescan started'));
+  //res.json({ status: "rescan started" });
 });
 
 app.get("/status", async (req, res) => {

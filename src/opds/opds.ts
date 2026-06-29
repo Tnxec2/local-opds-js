@@ -466,6 +466,10 @@ async function buildFolderFeed(
   feed.ele('id').txt(feedIdForPath(relPath));
   feed.ele('updated').txt(now);
 
+  // rescan link
+  const rescanHref = `${baseUrl.replace(/\/$/, '')}/rescan${relPath ? '/' + relPath.split(path.sep).map(encodeURIComponent).join('/') : ''}`
+  addFeedLink(feed, rescanHref, 'http://opds-spec.org/featured', 'rescan from here');
+
   // self link
   const selfHref = `${baseUrl.replace(/\/$/, '')}/${format}opds/folder${relPath ? '/' + relPath.split(path.sep).map(encodeURIComponent).join('/') : ''}`;
   // feed.ele('link', { rel: 'self', href: selfHref, type: 'type="application/atom+xml;profile=opds-catalog"' }).up();
@@ -516,4 +520,18 @@ async function addDirectory(entry: XMLBuilder, baseUrl: string, format: 'x4' | '
   entry.ele('content').txt(`directory (${fileCount} files)`);
 }
 
-export { buildMainFeed, buildFolderFeed, buildAuthorFeed, buildTitleFeed, buildByAuthorFeed };
+function getFeedForRescan(content: string) {
+  const now = new Date().toISOString();
+  const feed = create({ version: '1.0', encoding: 'utf-8' }).ele('feed', { xmlns: 'http://www.w3.org/2005/Atom' });
+  feed.ele('title').txt(`Local OPDS info: ${content}`);
+  feed.ele('id').txt( new Date().getTime().toString());
+  feed.ele('updated').txt(now);
+
+
+  const entry = feed.ele('entry');
+  entry.ele('title').txt(content);
+  
+  return feed.end({ prettyPrint: true });
+}
+
+export { buildMainFeed, buildFolderFeed, buildAuthorFeed, buildTitleFeed, buildByAuthorFeed, getFeedForRescan };
