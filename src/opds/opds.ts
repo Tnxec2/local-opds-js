@@ -115,6 +115,14 @@ async function addFileEntry(feed: XMLBuilder, baseUrl: string, format: 'x4' | 'x
       title: 'By Author: ' + b.author
     });
   }
+
+  const href = `${baseUrl.replace(/\/$/, '')}/${format}opds/folder/${encodeURIComponent(b.relpath)}`;
+  entry.ele('link', {
+    href: href, 
+    rel: 'related', 
+    type: 'application/atom+xml',
+    title: 'In folder: ' + b.relpath
+  });
   
   await addFileLink(entry, baseUrl, b.relpath, format, b.filename)
   entry.up();
