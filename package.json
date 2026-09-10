@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "@xmldom/xmldom": "^0.9.10",
-    "better-sqlite3": "^8.1.0",
+    "better-sqlite3": "^13.0.3",
     "canvas": "^3.2.3",
     "express": "^5.2.1",
     "jszip": "^3.10.1",
